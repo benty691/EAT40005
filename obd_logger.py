@@ -28,9 +28,9 @@ PIDS_TO_MONITOR = [
     obd.commands.THROTTLE_POS,
     obd.commands.RELATIVE_THROTTLE_POS,
     obd.commands.THROTTLE_POS_B, # If multiple throttle bodies
-    obd.commands.ACCEL_POS_D,
-    obd.commands.ACCEL_POS_E,
-    obd.commands.COMMANDED_THROTTLE_ACTUATOR,
+    #obd.commands.ACCEL_POS_D,
+    #obd.commands.ACCEL_POS_E,
+    #obd.commands.COMMANDED_THROTTLE_ACTUATOR,
     obd.commands.RELATIVE_ACCEL_POS,
 
     # Fuel System
@@ -45,10 +45,10 @@ PIDS_TO_MONITOR = [
     obd.commands.SHORT_FUEL_TRIM_2, # For V-engines or dual bank
     obd.commands.LONG_FUEL_TRIM_2,  # For V-engines or dual bank
     obd.commands.COMMANDED_EQUIV_RATIO, # Lambda
-    obd.commands.ENGINE_FUEL_RATE,
+    #obd.commands.ENGINE_FUEL_RATE,
     obd.commands.FUEL_TYPE,
     obd.commands.ETHANOL_PERCENT,
-    obd.commands.FUEL_INJECTION_TIMING,
+    #obd.commands.FUEL_INJECTION_TIMING,
 
     # Oxygen Sensors
     obd.commands.O2_SENSORS, # Bitmap of present O2 sensors
@@ -64,9 +64,9 @@ PIDS_TO_MONITOR = [
     # Emissions Systems
     obd.commands.COMMANDED_EGR,
     obd.commands.EGR_ERROR,
-    obd.commands.COMMANDED_EVAPORATIVE_PURGE,
+    #obd.commands.COMMANDED_EVAPORATIVE_PURGE,
     obd.commands.EVAP_VAPOR_PRESSURE,
-    obd.commands.ABSOLUTE_EVAP_VAPOR_PRESSURE,
+    #obd.commands.ABSOLUTE_EVAP_VAPOR_PRESSURE,
     obd.commands.CATALYST_TEMP_B1S1,
     obd.commands.CATALYST_TEMP_B1S2,
     # obd.commands.PIDS_A, # 01-20 Supported PIDs
@@ -78,7 +78,7 @@ PIDS_TO_MONITOR = [
     # obd.commands.FREEZE_DTC, # DTC that caused freeze frame
     # obd.commands.GET_DTC, # To get confirmed, pending, permanent DTCs (use specific functions like get_dtc())
     obd.commands.DISTANCE_W_MIL,
-    obd.commands.TIME_W_MIL,
+    #obd.commands.TIME_W_MIL,
     obd.commands.DISTANCE_SINCE_DTC_CLEAR,
     obd.commands.TIME_SINCE_DTC_CLEARED,
     obd.commands.WARMUPS_SINCE_DTC_CLEAR,
@@ -98,7 +98,7 @@ WIFI_ADAPTER_HOST = "192.168.0.10"  # Replace with your OBD-II WiFi adapter's IP
 WIFI_ADAPTER_PORT = 35000           # Replace with your OBD-II WiFi adapter's port (often 35000)
 # Protocol "6" is common for CAN bus vehicles. You might need to experiment if this fails.
 WIFI_PROTOCOL = "6" 
-USE_WIFI_SETTINGS = True # Set to False if you have a USB/Bluetooth adapter that auto-detects
+USE_WIFI_SETTINGS = False # Set to False if you have a USB/Bluetooth adapter that auto-detects
 
 # --- Helper Function to Get PID Value ---
 def get_pid_value(connection, pid_command):
@@ -149,8 +149,9 @@ def main():
                                  fast=False,
                                  timeout=30) # Increased timeout for WiFi
         else:
-            print("Attempting to auto-connect to USB/Bluetooth OBD-II adapter...")
-            connection = obd.OBD(fast=False, timeout=30) # Auto-scan for USB/Bluetooth
+            print("Attempting to connect via socat PTY /dev/ttys010...")
+            # Ensure this path matches the PTY from socat output (e.g., /dev/ttys010)
+            connection = obd.OBD("/dev/ttys010", fast=False, timeout=30) # Auto-scan for USB/Bluetooth
 
         # Check connection status
         if not connection.is_connected():
