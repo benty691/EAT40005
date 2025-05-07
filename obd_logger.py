@@ -90,6 +90,7 @@ PIDS_TO_MONITOR = [
     obd.commands.HYBRID_BATTERY_REMAINING, # If hybrid
 ]
 CSV_FILENAME_BASE = "obd_data_log" # Base name for the log file
+LOG_SUBDIRECTORY = "logs" # Subdirectory to store log files
 
 # --- Connection Settings (IMPORTANT: CONFIGURE FOR YOUR WIFI ADAPTER) ---
 # If your WiFi OBD-II adapter has a static IP and port (most do):
@@ -120,11 +121,22 @@ def main():
     connection = None
     print("Starting OBD-II Data Logger...")
 
+    # Define the logs directory path
+    log_dir_path = os.path.join(os.getcwd(), LOG_SUBDIRECTORY)
+
+    # Create the logs directory if it doesn't exist
+    try:
+        os.makedirs(log_dir_path, exist_ok=True)
+        print(f"Log files will be saved in: {log_dir_path}")
+    except OSError as e:
+        print(f"Error creating directory {log_dir_path}: {e}")
+        print("Log files will be saved in the current working directory instead.")
+        log_dir_path = os.getcwd() # Fallback to current directory
+
     # Generate a unique filename for this session using a timestamp
     current_session_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    # Correctly assign to global CSV_FILENAME if that's the intent, or pass it around.
-    # For this structure, let's define CSV_FILENAME here and use it.
-    CSV_FILENAME = f"{CSV_FILENAME_BASE}_{current_session_timestamp}.csv"
+    csv_file_name_only = f"{CSV_FILENAME_BASE}_{current_session_timestamp}.csv"
+    CSV_FILENAME = os.path.join(log_dir_path, csv_file_name_only)
 
     # Attempt to connect
     try:
