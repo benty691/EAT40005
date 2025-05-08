@@ -4,11 +4,6 @@ import datetime
 import csv
 import os
 
-# --- Configuration ---
-LOG_INTERVAL_SECONDS = .2  # How often to log data (in seconds)
-# Common PIDs to start with. Add or remove as needed.
-# You can find more PIDs in the obd.commands documentation or by querying supported commands.
-
 # Define High-Frequency PIDs (polled every BASE_LOG_INTERVAL)
 HIGH_FREQUENCY_PIDS = [
     obd.commands.RPM,
@@ -17,14 +12,13 @@ HIGH_FREQUENCY_PIDS = [
     obd.commands.SPEED,
 ]
 
-# Define Low-Frequency PIDs (polled in groups less often)
-# These are the remaining PIDs from your previous list, respecting commented out ones
+# Define Low-Frequency PIDs (polled every 2 mins)
 LOW_FREQUENCY_PIDS_POOL = [
     obd.commands.ENGINE_LOAD,
     obd.commands.ABSOLUTE_LOAD,
     obd.commands.COOLANT_TEMP,
     obd.commands.INTAKE_TEMP,
-    obd.commands.AMBIENT_AIR_TEMP,
+    obd.commands.AMBIANT_AIR_TEMP,
     obd.commands.OIL_TEMP,
     obd.commands.TIMING_ADVANCE,
     obd.commands.MAF,
@@ -90,7 +84,7 @@ def get_pid_value(connection, pid_command):
     except Exception as e:
         print(f"Error querying {pid_command.name}: {e}") 
         return None
-
+    
 def main():
     connection = None
     print("Starting OBD-II Data Logger...")
@@ -139,7 +133,7 @@ def main():
                                  timeout=30) 
         else:
             print("Attempting to connect via socat PTY /dev/ttys010...")
-            connection = obd.OBD("/dev/ttys010", fast=False, timeout=30) # Auto-scan for USB/Bluetooth
+            connection = obd.OBD("/dev/ttys010", fast=True, timeout=30) # Auto-scan for USB/Bluetooth
 
         if not connection.is_connected():
             print("Failed to connect to OBD-II adapter.")
@@ -151,11 +145,7 @@ def main():
         print(f"Supported PIDs (sample):")
         supported_commands = connection.supported_commands
         for i, cmd in enumerate(supported_commands):
-            if i < 10: # Print first 10 supported PIDs
-                 print(f"  - {cmd.name}")
-            else:
-                print(f"  ... and {len(supported_commands) - 10} more.")
-                break
+            print(f"  - {cmd.name}")
         if not supported_commands:
             print("No commands")
 
