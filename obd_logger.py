@@ -3,62 +3,34 @@ import time
 import datetime
 import csv
 import os
+import sys
+import select
 
 # Define High-Frequency PIDs (polled every BASE_LOG_INTERVAL)
 HIGH_FREQUENCY_PIDS = [
     obd.commands.RPM,
     obd.commands.THROTTLE_POS,
-    obd.commands.FUEL_PRESSURE,
     obd.commands.SPEED,
 ]
 
 # Define Low-Frequency PIDs (polled every 2 mins)
 LOW_FREQUENCY_PIDS_POOL = [
+    obd.commands.FUEL_PRESSURE,
     obd.commands.ENGINE_LOAD,
-    obd.commands.ABSOLUTE_LOAD,
     obd.commands.COOLANT_TEMP,
     obd.commands.INTAKE_TEMP,
-    obd.commands.AMBIANT_AIR_TEMP,
-    obd.commands.OIL_TEMP,
     obd.commands.TIMING_ADVANCE,
     obd.commands.MAF,
     obd.commands.INTAKE_PRESSURE, 
-    obd.commands.BAROMETRIC_PRESSURE,
-    obd.commands.RUN_TIME,
-    obd.commands.CONTROL_MODULE_VOLTAGE,
-    obd.commands.RELATIVE_THROTTLE_POS,
-    obd.commands.THROTTLE_POS_B, 
-    obd.commands.RELATIVE_ACCEL_POS,
-    obd.commands.FUEL_LEVEL,
-    obd.commands.FUEL_STATUS,
-    obd.commands.FUEL_RAIL_PRESSURE_VAC,
-    obd.commands.FUEL_RAIL_PRESSURE_DIRECT,
-    obd.commands.FUEL_RAIL_PRESSURE_ABS,
     obd.commands.SHORT_FUEL_TRIM_1,
     obd.commands.LONG_FUEL_TRIM_1,
     obd.commands.SHORT_FUEL_TRIM_2, 
     obd.commands.LONG_FUEL_TRIM_2,  
     obd.commands.COMMANDED_EQUIV_RATIO, 
-    obd.commands.FUEL_TYPE,
-    obd.commands.ETHANOL_PERCENT,
-    obd.commands.O2_SENSORS, 
-    obd.commands.O2_B1S1, 
     obd.commands.O2_B1S2, 
-    obd.commands.O2_B2S1, 
     obd.commands.O2_B2S2, 
     obd.commands.O2_S1_WR_VOLTAGE,
-    obd.commands.O2_S1_WR_CURRENT,
     obd.commands.COMMANDED_EGR,
-    obd.commands.EGR_ERROR,
-    obd.commands.EVAP_VAPOR_PRESSURE,
-    obd.commands.CATALYST_TEMP_B1S1,
-    obd.commands.CATALYST_TEMP_B1S2,
-    obd.commands.STATUS, 
-    obd.commands.DISTANCE_W_MIL,
-    obd.commands.DISTANCE_SINCE_DTC_CLEAR,
-    obd.commands.TIME_SINCE_DTC_CLEARED,
-    obd.commands.WARMUPS_SINCE_DTC_CLEAR,
-    obd.commands.OBD_COMPLIANCE,
 ]
 
 ALL_PIDS_TO_LOG = HIGH_FREQUENCY_PIDS + LOW_FREQUENCY_PIDS_POOL
@@ -88,9 +60,15 @@ def get_pid_value(connection, pid_command):
 def main():
     connection = None
     print("Starting OBD-II Data Logger...")
+    print("You can type 'style <description>' or 'road <description>' and press Enter to label logs.")
+    print("Example: 'style aggressive' or 'road highway'")
+    print("Initial classifications are 'UNKNOWN_STYLE' and 'UNKNOWN_ROAD'.")
 
-    BASE_LOG_INTERVAL = 1.5  # for high frequency data
-    LOW_FREQUENCY_GROUP_POLL_INTERVAL = 120.0  # Interval in seconds to poll one group of LF PIDs (2 minutes)
+    current_driving_style = "UNKNOWN_STYLE"
+    current_road_type = "UNKNOWN_ROAD"
+
+    BASE_LOG_INTERVAL = .5  # for high frequency data
+    LOW_FREQUENCY_GROUP_POLL_INTERVAL = 45.0  # Interval in seconds to poll one group of LF PIDs 
     NUM_LOW_FREQUENCY_GROUPS = 3
 
     # Prepare Low-Frequency PID groups
@@ -132,8 +110,8 @@ def main():
                                  fast=False,
                                  timeout=30) 
         else:
-            print("Attempting to connect via socat PTY /dev/ttys010...")
-            connection = obd.OBD("/dev/ttys010", fast=True, timeout=30) # Auto-scan for USB/Bluetooth
+            print("Attempting to connect via socat PTY /dev/ttys030...")
+            connection = obd.OBD("/dev/ttys034", fast=True, timeout=30) # Auto-scan for USB/Bluetooth
 
         if not connection.is_connected():
             print("Failed to connect to OBD-II adapter.")
@@ -151,7 +129,11 @@ def main():
 
         # Creating initial full PID sample to have fully populated rows from beginning 
         print("\nPerforming initial full PID sample...")
-        initial_log_entry = {'timestamp': datetime.datetime.now().isoformat()}
+        initial_log_entry = {
+            'timestamp': datetime.datetime.now().isoformat(),
+            'driving_style': current_driving_style,
+            'road_type': current_road_type
+        }
         
         print("Polling initial High-Frequency PIDs...")
         for pid_command in HIGH_FREQUENCY_PIDS:
@@ -182,7 +164,7 @@ def main():
     file_exists = os.path.isfile(CSV_FILENAME)
     try:
         with open(CSV_FILENAME, 'a', newline='') as csvfile:
-            header_names = ['timestamp'] + [pid.name for pid in ALL_PIDS_TO_LOG]
+            header_names = ['timestamp', 'driving_style', 'road_type'] + [pid.name for pid in ALL_PIDS_TO_LOG]
             writer = csv.DictWriter(csvfile, fieldnames=header_names)
 
             if not file_exists or os.path.getsize(CSV_FILENAME) == 0:
@@ -192,8 +174,7 @@ def main():
             if initial_log_entry: 
                 writer.writerow(initial_log_entry)
                 csvfile.flush()
-                log_count = 0
-                print(f"Logged initial full sample as entry {log_count}.")
+                print(f"Logged initial full sample. Style: {current_driving_style}, Road: {current_road_type}.")
             
             # Reset LF poll timer to start 2-min delay AFTER initial full sample
             last_low_frequency_group_poll_time = time.monotonic()
@@ -205,11 +186,37 @@ def main():
             
             log_count = 0
             while True:
+                if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+                    raw_input = sys.stdin.readline().strip()
+                    if raw_input: # Only process if the input is not empty
+                        parts = raw_input.lower().split(maxsplit=1)
+                        command = parts[0]
+                        value = parts[1] if len(parts) > 1 else ""
+
+                        if command == "style":
+                            if value:
+                                current_driving_style = raw_input[len("style "):].strip() # Preserve case from original input after command
+                                print(f"\nDriving style updated to: {current_driving_style}\n")
+                            else:
+                                print("\nUsage: style <description>\n")
+                        elif command == "road":
+                            if value:
+                                current_road_type = raw_input[len("road "):].strip() # Preserve case from original input after command
+                                print(f"\nRoad type updated to: {current_road_type}\n")
+                            else:
+                                print("\nUsage: road <description>\n")
+                        else:
+                            print(f"\nUnknown command '{command}'. Use 'style <desc>' or 'road <desc>'. \n")
+
                 loop_start_time = time.monotonic()
                 current_datetime = datetime.datetime.now()
                 timestamp_iso = current_datetime.isoformat()
                 
-                log_entry = {'timestamp': timestamp_iso}
+                log_entry = {
+                    'timestamp': timestamp_iso,
+                    'driving_style': current_driving_style,
+                    'road_type': current_road_type
+                }
                 for pid_name in current_pid_values: # Initialize with last known values
                     log_entry[pid_name] = current_pid_values[pid_name]
 
@@ -246,7 +253,7 @@ def main():
 
                 log_count += 1
                 if log_count % 10 == 0: 
-                    status_msg = f"Logged entry {log_count}: {timestamp_iso} - HF PIDs Read: {hf_reads}/{len(HIGH_FREQUENCY_PIDS)}"
+                    status_msg = f"Logged entry {log_count} (Style: {current_driving_style}, Road: {current_road_type}): {timestamp_iso} - HF PIDs Read: {hf_reads}/{len(HIGH_FREQUENCY_PIDS)}"
                     if lf_reads_this_cycle > 0 or lf_group_polled_this_cycle != "None":
                          status_msg += f" - LF PIDs ({lf_group_polled_this_cycle}) Read: {lf_reads_this_cycle}/unknown_total_for_group_easily"
                     print(status_msg)
