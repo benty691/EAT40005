@@ -1,0 +1,15 @@
+# Server
+fastapi
+uvicorn[standard]
+
+# Data
+pandas
+numpy
+scikit-learn
+
+# Drive
+gspread
+oauth2client
+google-auth
+google-auth-oauthlib
+google-api-python-client
