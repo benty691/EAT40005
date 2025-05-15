@@ -37,28 +37,71 @@ class OBDEntry(BaseModel):
 
 
 # ─────────────────────────────────────
-# Access Drive
+# Access Drive and save file
 # ─────────────────────────────────────
 import os
 import json
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-
-def get_gdrive_client():
-    """Initialize gspread client using mounted GDRIVE_CREDENTIALS_JSON."""
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+def get_drive_service():
+    """Return authenticated Google Drive service."""
     creds_json = os.getenv("GDRIVE_CREDENTIALS_JSON")
     if not creds_json:
-        logger.warning("GDRIVE_CREDENTIALS_JSON is not set; skipping upload.")
+        logger.warning("GDRIVE_CREDENTIALS_JSON is not set.")
         return None
     try:
         creds_dict = json.loads(creds_json)
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        return client
+        creds = service_account.Credentials.from_service_account_info(
+            creds_dict,
+            scopes=["https://www.googleapis.com/auth/drive"]
+        )
+        service = build("drive", "v3", credentials=creds)
+        return service
     except Exception as e:
-        logger.error(f"Failed to reinitialize Google Drive client: {e}")
+        logger.error(f"Failed to initialize Google Drive API: {e}")
         return None
+    
+# Locate (and create drive folder if needed)
+def get_or_create_folder(service, folder_name, parent_id=None):
+    """Get or create a Google Drive folder by name."""
+    query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder'"
+    if parent_id:
+        query += f" and '{parent_id}' in parents"
+    else:
+        query += " and 'root' in parents"
+    results = service.files().list(q=query, fields="files(id, name)").execute()
+    folders = results.get("files", [])
+    if folders:
+        return folders[0]["id"]
+    # Create folder if not found
+    file_metadata = {
+        "name": folder_name,
+        "mimeType": "application/vnd.google-apps.folder"
+    }
+    if parent_id:
+        file_metadata["parents"] = [parent_id]
+    folder = service.files().create(body=file_metadata, fields="id").execute()
+    return folder.get("id")
+
+# Upload file to drive (with path specific)
+from googleapiclient.http import MediaFileUpload
+def upload_to_folder(service, file_path, folder_id):
+    """Upload file to Google Drive folder."""
+    file_name = os.path.basename(file_path)
+    media = MediaFileUpload(file_path, mimetype='text/csv')
+    file_metadata = {
+        "name": file_name,
+        "parents": [folder_id]
+    }
+    uploaded_file = service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields="id"
+    ).execute()
+    return uploaded_file
+
+
 
 
 # ─────────────────────────────────────
@@ -187,25 +230,25 @@ def process_data():
         save_dir = "/content/drive/My Drive/EAT40005/Logs"
         os.makedirs(save_dir, exist_ok=True)
         
-        # Save cleaned output
+        # Final save location inside container
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"cleaned_{ts}.csv"
-        full_path = os.path.join(save_dir, filename)
+        full_path = os.path.join(CLEANED_DIR, filename)
         df.to_csv(full_path, index=False)
-        logger.info(f"✅ Cleaned CSV saved to Google Drive path: {full_path}")
-
-        # Upload to Google Drive
-        gdrive = get_gdrive_client()
-        if gdrive:
+        logger.info(f"✅ Cleaned CSV saved locally at: {full_path}")
+        
+        # Upload CSV to Google Drive "EAT40005/Logs"
+        drive_service = get_drive_service()
+        if drive_service:
             try:
-                logger.info("Uploading cleaned data to Google Drive...")
-                with open(full_path, "rb") as f:
-                    gdrive.import_csv(gdrive.create(filename).id, f.read())
-                logger.info(f"Uploaded {filename} successfully.")
+                parent_folder_id = get_or_create_folder(drive_service, "EAT40005")
+                logs_folder_id = get_or_create_folder(drive_service, "Logs", parent_id=parent_folder_id)
+                upload_to_folder(drive_service, full_path, logs_folder_id)
+                logger.info(f"✅ Uploaded to Google Drive > EAT40005/Logs: {filename}")
             except Exception as e:
-                logger.error(f"Failed uploading {filename}: {e}")
+                logger.error(f"❌ Failed to upload to nested folder: {e}")
         else:
-            logger.warning("Google Drive upload skipped: No credentials found.")
+            logger.warning("⚠️ Skipped Google Drive upload (no credentials).")
 
     except Exception as e:
         logger.error(f"Error in processing pipeline: {e}")
