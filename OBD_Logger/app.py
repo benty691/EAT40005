@@ -37,7 +37,7 @@ class OBDEntry(BaseModel):
 # ─────────────────────────────────────
 # Paths and Directories
 # ─────────────────────────────────────
-BASE_DIR = os.getenv("APP_DIR", "./logs")
+BASE_DIR = "./app_logs"
 RAW_CSV = os.path.join(BASE_DIR, "raw_logs.csv")
 CLEANED_DIR = os.path.join(BASE_DIR, "cleaned")
 
@@ -46,7 +46,12 @@ os.makedirs(CLEANED_DIR, exist_ok=True)
 
 # Initialize raw CSV if not exists
 if not os.path.isfile(RAW_CSV):
-    pd.DataFrame(columns=["timestamp", "driving_style", "road_type"]).to_csv(RAW_CSV, index=False)
+    try:
+        pd.DataFrame(columns=["timestamp", "driving_style", "road_type"]).to_csv(RAW_CSV, index=False)
+        logger.info(f"Initialized raw log CSV at {RAW_CSV}")
+    except Exception as e:
+        logger.error(f"Failed to initialize raw CSV: {e}")
+        raise HTTPException(status_code=500, detail="Init write error")
     
 # Mount to Google Drive
 import json
