@@ -238,7 +238,8 @@ def process_data():
         if drive_service:
             try:
                 parent_folder_id = get_or_create_folder(drive_service, "EAT40005")
-                logs_folder_id = get_or_create_folder(drive_service, "Logs", parent_id=parent_folder_id)
+                # logs_folder_id = get_or_create_folder(drive_service, "Logs", parent_id=parent_folder_id)
+                logs_folder_id = "1r-wefqKbK9k9BeYDW1hXRbx4B-0Fvj5P" # Direct usage
                 logger.info(f"Drive Folder ID: https://drive.google.com/drive/u/0/folders/{logs_folder_id}")
                 upload_to_folder(drive_service, full_path, logs_folder_id)
                 logger.info(f"✅ Uploaded to Google Drive > EAT40005/Logs: {filename}")
