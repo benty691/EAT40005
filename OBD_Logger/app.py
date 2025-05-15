@@ -54,22 +54,22 @@ if not os.path.isfile(RAW_CSV):
         raise HTTPException(status_code=500, detail="Init write error")
     
 # Mount to Google Drive
-import json
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-def get_gdrive_client():
-    logger.info("Authenticating with Google Drive...")
-    try:
-        # Read secret (JSON string)
-        creds_dict = json.loads(os.environ.get("GDRIVE_CREDENTIALS_JSON"))
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        logger.info("Google Drive authentication successful.")
-        return client
-    except Exception as e:
-        logger.error(f"Failed to authenticate with Google Drive: {e}")
-        return None
+# import json
+# import gspread
+# from oauth2client.service_account import ServiceAccountCredentials
+# def get_gdrive_client():
+#     logger.info("Authenticating with Google Drive...")
+#     try:
+#         # Read secret (JSON string)
+#         creds_dict = json.loads(os.environ.get("GDRIVE_CREDENTIALS_JSON"))
+#         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+#         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+#         client = gspread.authorize(creds)
+#         logger.info("Google Drive authentication successful.")
+#         return client
+#     except Exception as e:
+#         logger.error(f"Failed to authenticate with Google Drive: {e}")
+#         return None
 
 # ─────────────────────────────────────
 # Endpoint: Ingest streamed OBD data

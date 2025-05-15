@@ -9,8 +9,11 @@ ENV HOME=/home/user
 WORKDIR $HOME/app
 
 # ── Copy requirements and install ──
-COPY --chown=user requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir uvicorn[standard] fastapi pandas numpy scikit-learn \ 
+    gspread oauth2client google-auth google-auth-oauthlib google-api-python-client
+
+RUN python mount_drive.py || true
 
 # ── Create writeable cache/log directories ──
 RUN mkdir -p $HOME/app/cache $HOME/app/logs $HOME/app/outputs
