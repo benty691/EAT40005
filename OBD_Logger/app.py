@@ -94,7 +94,8 @@ def process_data():
         logger.info(f"Loaded raw data with shape {df.shape}")
 
         # Drop constant/empty columns
-        drop_cols = [c for c in df.columns if df[c].nunique() <= 1 or df[c].isna().all()]
+        protected_cols = {"timestamp", "driving_style", "road_type"} # Protect manual features from being cleaned
+        drop_cols = [c for c in df.columns if c not in protected_cols and (df[c].nunique() <= 1 or df[c].isna().all())]
         df.drop(columns=drop_cols, inplace=True)
         logger.info(f"Dropped constant/empty columns: {drop_cols}")
 
