@@ -37,7 +37,7 @@ class OBDEntry(BaseModel):
 # ─────────────────────────────────────
 # Paths and Directories
 # ─────────────────────────────────────
-BASE_DIR = "/cache/logs"
+BASE_DIR = os.environ['OBD_CACHE']
 RAW_CSV = os.path.join(BASE_DIR, "raw_logs.csv")
 CLEANED_DIR = os.path.join(BASE_DIR, "cleaned")
 

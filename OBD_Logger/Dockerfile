@@ -11,8 +11,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Ensure logs folder exists and is writable
-RUN mkdir -p /app/cache/logs/cleaned
+# Create writable cache directory for OBD data
+ENV OBD_CACHE=/.cache/obd_data
+RUN mkdir -p ${OBD_CACHE}
+
+# OPTIONAL: move it to ./ relative to /app if not root-level
+ENV OBD_CACHE=./.cache/obd_data
+RUN mkdir -p .cache/obd_data
+
 
 # Expose default Hugging Face Spaces port
 EXPOSE 7860
