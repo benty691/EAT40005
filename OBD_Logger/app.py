@@ -225,10 +225,6 @@ def process_data():
         if {"MAF","RPM"}.issubset(df.columns):
             df['AIRFLOW_PER_RPM'] = df['MAF']/df['RPM'].replace(0, np.nan)
         logger.info("Completed feature engineering")
-
-        # Desired target path on mounted Google Drive
-        save_dir = "/content/drive/My Drive/EAT40005/Logs"
-        os.makedirs(save_dir, exist_ok=True)
         
         # Final save location inside container
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
