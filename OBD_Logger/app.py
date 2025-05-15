@@ -37,7 +37,7 @@ class OBDEntry(BaseModel):
 # ─────────────────────────────────────
 # Paths and Directories
 # ─────────────────────────────────────
-BASE_DIR = "./app_logs"
+BASE_DIR = "/cache/logs"
 RAW_CSV = os.path.join(BASE_DIR, "raw_logs.csv")
 CLEANED_DIR = os.path.join(BASE_DIR, "cleaned")
 
@@ -196,9 +196,22 @@ def process_data():
     except Exception as e:
         logger.error(f"Error in processing pipeline: {e}")
 
+
 # ─────────────────────────────────────
 # Health Check Endpoint
 # ─────────────────────────────────────
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ─────────────────────────────────────
+# Download Endpoint
+# ─────────────────────────────────────
+from fastapi.responses import FileResponse
+@app.get("/download/{filename}")
+def download_file(filename: str):
+    file_path = os.path.join(CLEANED_DIR, filename)
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path, media_type='text/csv', filename=filename)
