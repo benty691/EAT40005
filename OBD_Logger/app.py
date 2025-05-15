@@ -32,7 +32,6 @@ app = FastAPI(title="OBD-II Logging & Processing API")
 class OBDEntry(BaseModel):
     timestamp: str
     driving_style: str
-    road_type: str
     data: dict  # PID name -> value
 
 
@@ -61,28 +60,6 @@ def get_drive_service():
     except Exception as e:
         logger.error(f"Failed to initialize Google Drive API: {e}")
         return None
-    
-# Locate (and create drive folder if needed)
-def get_or_create_folder(service, folder_name, parent_id=None):
-    """Get or create a Google Drive folder by name."""
-    query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder'"
-    if parent_id:
-        query += f" and '{parent_id}' in parents"
-    else:
-        query += " and 'root' in parents"
-    results = service.files().list(q=query, fields="files(id, name)").execute()
-    folders = results.get("files", [])
-    if folders:
-        return folders[0]["id"]
-    # Create folder if not found
-    file_metadata = {
-        "name": folder_name,
-        "mimeType": "application/vnd.google-apps.folder"
-    }
-    if parent_id:
-        file_metadata["parents"] = [parent_id]
-    folder = service.files().create(body=file_metadata, fields="id").execute()
-    return folder.get("id")
 
 # Copy file from cache to desired destination directory
 from googleapiclient.http import MediaFileUpload
@@ -102,8 +79,6 @@ def upload_to_folder(service, file_path, folder_id):
     return uploaded_file
 
 
-
-
 # ─────────────────────────────────────
 # Paths and Directories
 # ─────────────────────────────────────
@@ -117,7 +92,7 @@ os.makedirs(CLEANED_DIR, exist_ok=True)
 # Initialize raw CSV if not exists
 if not os.path.isfile(RAW_CSV):
     try:
-        pd.DataFrame(columns=["timestamp", "driving_style", "road_type"]).to_csv(RAW_CSV, index=False)
+        pd.DataFrame(columns=["timestamp", "driving_style"]).to_csv(RAW_CSV, index=False)
         logger.info(f"Initialized raw log CSV at {RAW_CSV}")
     except Exception as e:
         logger.error(f"Failed to initialize raw CSV: {e}")
@@ -129,7 +104,7 @@ if not os.path.isfile(RAW_CSV):
 # ─────────────────────────────────────
 @app.post("/ingest")
 def ingest(entry: OBDEntry, background_tasks: BackgroundTasks):
-    logger.info(f"Ingesting entry at {entry.timestamp}, style={entry.driving_style}, road={entry.road_type}")
+    logger.info(f"Ingesting entry at {entry.timestamp}, style={entry.driving_style}")
     try:
         df = pd.read_csv(RAW_CSV)
     except Exception as e:
@@ -140,7 +115,6 @@ def ingest(entry: OBDEntry, background_tasks: BackgroundTasks):
     row = {
         "timestamp": entry.timestamp,
         "driving_style": entry.driving_style,
-        "road_type": entry.road_type
     }
     row.update(entry.data)
 
@@ -163,7 +137,7 @@ def process_data():
         logger.info(f"Loaded raw data with shape {df.shape}")
 
         # Drop constant/empty columns
-        protected_cols = {"timestamp", "driving_style", "road_type"} # Protect manual features from being cleaned
+        protected_cols = {"timestamp", "driving_style"} # Protect manual features from being cleaned
         drop_cols = [c for c in df.columns if c not in protected_cols and (df[c].nunique() <= 1 or df[c].isna().all())]
         df.drop(columns=drop_cols, inplace=True)
         logger.info(f"Dropped constant/empty columns: {drop_cols}")
@@ -237,8 +211,6 @@ def process_data():
         drive_service = get_drive_service()
         if drive_service:
             try:
-                parent_folder_id = get_or_create_folder(drive_service, "EAT40005")
-                # logs_folder_id = get_or_create_folder(drive_service, "Logs", parent_id=parent_folder_id)
                 logs_folder_id = "1r-wefqKbK9k9BeYDW1hXRbx4B-0Fvj5P" # Direct usage
                 logger.info(f"Drive Folder ID: https://drive.google.com/drive/u/0/folders/{logs_folder_id}")
                 upload_to_folder(drive_service, full_path, logs_folder_id)

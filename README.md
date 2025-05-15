@@ -111,9 +111,15 @@ git subtree split --prefix=OBD_Logger -b hf-deploy
 git push hf hf-deploy:main --force
 ```
 
-## 📝 Sample CURL Data Request
+## Data Streaming Simulation
+1. Direct post with CURL (1 entry only): 
 ```bash
 curl -X POST https://binkhoale1812-obd-logger.hf.space/ingest \
      -H "Content-Type: application/json" \
      -d @OBD_Logger/data.json
+```
+
+2. Streaming with Python app (15s, 0.2s per log:)
+```bash
+python3 stream.py
 ```

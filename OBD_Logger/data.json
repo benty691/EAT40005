@@ -1,7 +1,6 @@
 {
     "timestamp": "2025-05-15T10:00:00",
     "driving_style": "aggressive",
-    "road_type": "freeway",
     "data": {
       "RPM": 3200,
       "THROTTLE_POS": 75,
