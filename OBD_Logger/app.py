@@ -139,11 +139,14 @@ def process_data():
         df.reset_index(drop=True, inplace=True)
         logger.info("Sorted by timestamp and reset index")
 
-        # Normalize numeric features
-        scaler = MinMaxScaler()
+        # Normalize numeric features (only if numeric columns remain)
         num_cols = df.select_dtypes(include=[np.number]).columns
-        df[num_cols] = scaler.fit_transform(df[num_cols])
-        logger.info("Applied MinMax normalization")
+        if not num_cols.empty:
+            scaler = MinMaxScaler()
+            df[num_cols] = scaler.fit_transform(df[num_cols])
+            logger.info("Applied MinMax normalization")
+        else:
+            logger.warning("Skipped normalization: no numeric columns found")
 
         # Feature engineering
         if {"ENGINE_LOAD","ABSOLUTE_LOAD"}.issubset(df.columns):
