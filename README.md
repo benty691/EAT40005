@@ -106,6 +106,7 @@ cd ..
 ```
 **Next time staging and pushes**
 ```bash
+git add OBD_Logger 
 git subtree split --prefix=OBD_Logger -b hf-deploy
 git push hf hf-deploy:main --force
 ```

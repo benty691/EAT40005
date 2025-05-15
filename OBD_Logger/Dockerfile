@@ -11,6 +11,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Ensure logs folder exists and is writable
+RUN mkdir -p /app/logs /app/logs/cleaned
+
 # Expose default Hugging Face Spaces port
 EXPOSE 7860
 
