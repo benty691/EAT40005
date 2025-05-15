@@ -4,25 +4,27 @@ FROM python:3.11-slim
 RUN useradd -m -u 1000 user
 USER user
 
-# ── Set home and working directory ──
+# ── Set environment and working directory ──
 ENV HOME=/home/user
 WORKDIR $HOME/app
 
-# ── Copy requirements and install ──
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir uvicorn[standard] fastapi pandas numpy scikit-learn \ 
-    gspread oauth2client google-auth google-auth-oauthlib google-api-python-client
+# ── Upgrade pip and install dependencies ──
+COPY --chown=user requirements.txt .
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
 
+# ── Optional: Pre-mount GDrive (no-op if creds not found) ──
+COPY --chown=user mount_drive.py .
 RUN python mount_drive.py || true
-
-# ── Create writeable cache/log directories ──
-RUN mkdir -p $HOME/app/cache $HOME/app/logs $HOME/app/outputs
 
 # ── Copy application source ──
 COPY --chown=user . .
 
-# ── Default FastAPI port ──
+# ── Make sure cache/log folders are owned by the user ──
+RUN mkdir -p $HOME/app/logs $HOME/app/cache $HOME/app/cache/obd_data
+
+# ── Default port ──
 EXPOSE 7860
 
-# ── Run app ──
+# ── Start app ──
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
