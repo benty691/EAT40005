@@ -27,4 +27,4 @@ RUN mkdir -p $HOME/app/logs $HOME/app/cache $HOME/app/cache/obd_data
 EXPOSE 7860
 
 # ── Start app ──
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
