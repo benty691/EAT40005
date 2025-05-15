@@ -200,7 +200,7 @@ def process_data():
             except Exception as e:
                 logger.error(f"Failed uploading {filename}: {e}")
         else:
-            logger.warning("Google Drive upload skipped: No credentials found."))
+            logger.warning("Google Drive upload skipped: No credentials found.")
 
     except Exception as e:
         logger.error(f"Error in processing pipeline: {e}")
