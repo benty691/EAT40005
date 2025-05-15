@@ -37,7 +37,7 @@ class OBDEntry(BaseModel):
 # ─────────────────────────────────────
 # Paths and Directories
 # ─────────────────────────────────────
-BASE_DIR = os.getenv("APP_DIR", "./logs")
+BASE_DIR = os.getenv("APP_DIR", "/data/logs") # Need permitted path
 RAW_CSV = os.path.join(BASE_DIR, "raw_logs.csv")
 CLEANED_DIR = os.path.join(BASE_DIR, "cleaned")
 
