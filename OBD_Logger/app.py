@@ -35,6 +35,32 @@ class OBDEntry(BaseModel):
     road_type: str
     data: dict  # PID name -> value
 
+
+# ─────────────────────────────────────
+# Access Drive
+# ─────────────────────────────────────
+import os
+import json
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
+def get_gdrive_client():
+    """Initialize gspread client using mounted GDRIVE_CREDENTIALS_JSON."""
+    creds_json = os.getenv("GDRIVE_CREDENTIALS_JSON")
+    if not creds_json:
+        logger.warning("GDRIVE_CREDENTIALS_JSON is not set; skipping upload.")
+        return None
+    try:
+        creds_dict = json.loads(creds_json)
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        return client
+    except Exception as e:
+        logger.error(f"Failed to reinitialize Google Drive client: {e}")
+        return None
+
+
 # ─────────────────────────────────────
 # Paths and Directories
 # ─────────────────────────────────────
@@ -166,20 +192,15 @@ def process_data():
         # Upload to Google Drive
         gdrive = get_gdrive_client()
         if gdrive:
-            folder_name = "OBD Cleaned Logs"
             try:
-                # Check for folder
-                folders = gdrive.list_spreadsheet_files()
-                folder = next((f for f in folders if f["name"] == folder_name), None)
-                if not folder:
-                    logger.info(f"Creating folder: {folder_name}")
-                    folder = gdrive.create(folder_name)
-                gdrive.upload(filename, folder_id=folder["id"])
-                logger.info(f"Uploaded {filename} to Google Drive folder: {folder_name}")
+                logger.info("Uploading cleaned data to Google Drive...")
+                with open(filename, "rb") as f:
+                    gdrive.import_csv(gdrive.create(filename).id, f.read())
+                logger.info(f"Uploaded {filename} successfully.")
             except Exception as e:
-                logger.error(f"Failed uploading to Google Drive: {e}")
+                logger.error(f"Failed uploading {filename}: {e}")
         else:
-            logger.warning("Skipped upload due to missing GDrive client.")
+            logger.warning("Google Drive upload skipped: No credentials found."))
 
     except Exception as e:
         logger.error(f"Error in processing pipeline: {e}")

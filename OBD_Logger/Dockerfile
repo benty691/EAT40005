@@ -13,7 +13,7 @@ COPY --chown=user requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ── Optional: Pre-mount GDrive (no-op if creds not found) ──
+# ── Pre-mount GDrive (no-op if creds not found) ──
 COPY --chown=user mount_drive.py .
 RUN python mount_drive.py || true
 
