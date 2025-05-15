@@ -1,3 +1,4 @@
+#  https://binkhoale1812-obd-logger.hf.space/
 import logging
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
@@ -75,7 +76,7 @@ def ingest(entry: OBDEntry, background_tasks: BackgroundTasks):
     row.update(entry.data)
 
     # Append and save
-    df = df.append(row, ignore_index=True)
+    df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
     df.to_csv(RAW_CSV, index=False)
     logger.info("Appended new row to raw CSV")
 
