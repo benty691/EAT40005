@@ -183,18 +183,23 @@ def process_data():
             df['AIRFLOW_PER_RPM'] = df['MAF']/df['RPM'].replace(0, np.nan)
         logger.info("Completed feature engineering")
 
+        # Desired target path on mounted Google Drive
+        save_dir = "/content/drive/My Drive/EAT40005/Logs"
+        os.makedirs(save_dir, exist_ok=True)
+        
         # Save cleaned output
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"cleaned_{ts}.csv"
-        df.to_csv(filename, index=False)
-        logger.info(f"Temporarily saved {filename}")
+        full_path = os.path.join(save_dir, filename)
+        df.to_csv(full_path, index=False)
+        logger.info(f"✅ Cleaned CSV saved to Google Drive path: {full_path}")
 
         # Upload to Google Drive
         gdrive = get_gdrive_client()
         if gdrive:
             try:
                 logger.info("Uploading cleaned data to Google Drive...")
-                with open(filename, "rb") as f:
+                with open(full_path, "rb") as f:
                     gdrive.import_csv(gdrive.create(filename).id, f.read())
                 logger.info(f"Uploaded {filename} successfully.")
             except Exception as e:
