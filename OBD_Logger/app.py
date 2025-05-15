@@ -100,7 +100,7 @@ def process_data():
 # All processing pipeline
 def _process_and_save(df):
     logger.info("🔧 Cleaning started")
-    protected_cols = {"timestamp", "driving_style", "road_type"}
+    protected_cols = {"timestamp", "driving_style"}
     df.drop(columns=[c for c in df if c not in protected_cols and (df[c].nunique() <= 1 or df[c].isna().all())], inplace=True)
     df = df.loc[:, ~df.T.duplicated()]
     df.drop_duplicates(inplace=True)
