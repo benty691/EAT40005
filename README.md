@@ -96,3 +96,12 @@ F --> G[Google Drive (OBD Cleaned Logs)]
 * `AIRFLOW_PER_RPM`: MAF-to-RPM ratio
 
 ---
+
+## Git Push for HF Space repo:
+```bash
+cd OBD_Logger
+git remote add hf https://huggingface.co/spaces/BinKhoaLe1812/OBD_Logger
+cd ..
+git subtree split --prefix=OBD_Logger -b hf-deploy
+git push hf hf-deploy:main --force
+```
