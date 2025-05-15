@@ -84,7 +84,7 @@ def get_or_create_folder(service, folder_name, parent_id=None):
     folder = service.files().create(body=file_metadata, fields="id").execute()
     return folder.get("id")
 
-# Upload file to drive (with path specific)
+# Copy file from cache to desired destination directory
 from googleapiclient.http import MediaFileUpload
 def upload_to_folder(service, file_path, folder_id):
     """Upload file to Google Drive folder."""
@@ -239,6 +239,7 @@ def process_data():
             try:
                 parent_folder_id = get_or_create_folder(drive_service, "EAT40005")
                 logs_folder_id = get_or_create_folder(drive_service, "Logs", parent_id=parent_folder_id)
+                logger.info(f"Drive Folder ID: https://drive.google.com/drive/u/0/folders/{logs_folder_id}")
                 upload_to_folder(drive_service, full_path, logs_folder_id)
                 logger.info(f"✅ Uploaded to Google Drive > EAT40005/Logs: {filename}")
             except Exception as e:
