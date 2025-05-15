@@ -123,3 +123,11 @@ curl -X POST https://binkhoale1812-obd-logger.hf.space/ingest \
 ```bash
 python3 stream.py
 ```
+
+3. Non-streamingm, bulking CSV:
+```bash
+curl -X POST https://binkhoale1812-obd-logger.hf.space/upload-csv/ \
+     -H "accept: application/json" \
+     -H "Content-Type: multipart/form-data" \
+     -F "file=@sample_log.csv"
+```
