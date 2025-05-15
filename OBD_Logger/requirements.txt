@@ -1,6 +1,7 @@
 # Server
 fastapi
 uvicorn[standard]
+python-multipart
 
 # Data
 pandas

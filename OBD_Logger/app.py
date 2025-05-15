@@ -55,6 +55,7 @@ class OBDEntry(BaseModel):
     driving_style: str
     data: dict
 
+# Real time endpoint
 @app.post("/ingest")
 def ingest(entry: OBDEntry, background_tasks: BackgroundTasks):
     logger.info(f"Ingest: {entry.timestamp} / {entry.driving_style}")
@@ -88,6 +89,7 @@ def process_uploaded_csv(path):
     except Exception as e:
         logger.error(f"CSV processing failed: {e}")
 
+# Process streaming
 def process_data():
     try:
         df = pd.read_csv(RAW_CSV, parse_dates=["timestamp"])
@@ -95,6 +97,7 @@ def process_data():
     except Exception as e:
         logger.error(f"Streamed data processing failed: {e}")
 
+# All processing pipeline
 def _process_and_save(df):
     logger.info("🔧 Cleaning started")
     protected_cols = {"timestamp", "driving_style", "road_type"}
