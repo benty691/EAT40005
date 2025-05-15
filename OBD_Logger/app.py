@@ -37,7 +37,7 @@ class OBDEntry(BaseModel):
 # ─────────────────────────────────────
 # Paths and Directories
 # ─────────────────────────────────────
-os.environ['OBD_CACHE'] = './.cache/obd_data'
+os.environ['OBD_CACHE'] = './cache/obd_data'
 os.makedirs(os.environ['OBD_CACHE'], exist_ok=True)
 BASE_DIR = os.environ['OBD_CACHE']
 RAW_CSV = os.path.join(BASE_DIR, "raw_logs.csv")
