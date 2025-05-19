@@ -54,20 +54,21 @@ F --> G[Google Drive (OBD Cleaned Logs)]
 
 ## 🚀 API Endpoints
 
-| Method | Endpoint  | Description                 |
-| ------ | --------- | --------------------------- |
-| POST   | `/ingest` | Accept a new OBD log entry  |
-| GET    | `/health` | Health check (status: "ok") |
+| Method | Endpoint       | Description                       |
+| ------ | -------------- | --------------------------------- |
+| POST   | `/ingest`      | Accept OBD-data streaming in JSON |
+| POST   | `/upload-csv`  | Accept bulk CSV file              |
+| GET    | `/health`      | Health check (status: "ok")       |
+| GET    | `/download/{f}`| Download filename `f`             |
 
 ---
 
-## 📑 JSON Schema Example
+## 📑 JSON Schema Example (for streaming)
 
 ```json
 {
   "timestamp": "2025-05-15T13:45:22",
   "driving_style": "aggressive",
-  "road_type": "freeway",
   "data": {
     "RPM": 2450,
     "THROTTLE_POS": 23.4,
