@@ -4,7 +4,64 @@ import datetime
 import csv
 import os
 import sys
-import select
+from collections import deque # Added for rolling averages
+import numpy as np # For calculations like average, std dev
+
+# Define Driving Style Categories
+DRIVING_STYLE_PASSIVE = "Passive"
+DRIVING_STYLE_MODERATE = "Moderate"
+DRIVING_STYLE_AGGRESSIVE = "Aggressive"
+DRIVING_STYLE_UNKNOWN = "UNKNOWN_STYLE"
+
+# Define Road Type Categories
+ROAD_TYPE_CITY = "City"
+ROAD_TYPE_HIGHWAY = "Highway"
+ROAD_TYPE_RURAL = "Rural" # Placeholder, might be harder to define
+ROAD_TYPE_UNKNOWN = "UNKNOWN_ROAD"
+
+# Define Traffic Condition Categories
+TRAFFIC_CONDITION_LIGHT = "Light"
+TRAFFIC_CONDITION_MODERATE = "Moderate"
+TRAFFIC_CONDITION_HEAVY = "Heavy"
+TRAFFIC_CONDITION_UNKNOWN = "UNKNOWN_TRAFFIC"
+
+# Rolling Average Configuration
+ROLLING_WINDOW_SIZE = 20  # Number of samples for rolling averages (e.g., 20 samples * 0.5s/sample = 10 seconds)
+MIN_SAMPLES_FOR_CLASSIFICATION = 10 # Minimum samples needed before attempting classification
+
+# Data storage for rolling averages
+# We will store raw values and calculate averages/changes as needed.
+# Using deque for efficient fixed-size lists
+recent_rpm_values = deque(maxlen=ROLLING_WINDOW_SIZE)
+recent_throttle_pos_values = deque(maxlen=ROLLING_WINDOW_SIZE)
+recent_speed_values = deque(maxlen=ROLLING_WINDOW_SIZE)
+
+# Helper function to calculate average from a deque
+def get_average(dq, exclude_below=None):
+    if not dq:
+        return 0
+    # Filter values if exclude_below is specified
+    values = list(dq)
+    if exclude_below is not None:
+        values = [v for v in values if v > exclude_below]
+    if not values: # If all values were filtered out
+        return 0
+    return np.mean(values)
+
+# Helper function to calculate rate of change (average difference between consecutive elements)
+def get_rate_of_change(dq):
+    if len(dq) < 2:
+        return 0
+    # Calculate differences between consecutive elements
+    # Use np.diff for simplicity if available, or manual loop
+    diffs = np.diff(list(dq))
+    return np.mean(diffs) if len(diffs) > 0 else 0
+
+# Helper function to count near-zero speed occurrences (stops)
+def count_stops(dq, stop_threshold=5): # Assuming speed in km/h, threshold for being "stopped"
+    if not dq:
+        return 0
+    return sum(1 for speed in dq if speed < stop_threshold)
 
 # Define High-Frequency PIDs (polled every BASE_LOG_INTERVAL)
 HIGH_FREQUENCY_PIDS = [
@@ -60,14 +117,20 @@ def get_pid_value(connection, pid_command):
 def main():
     connection = None
     print("Starting OBD-II Data Logger...")
-    print("You can type 'style <description>' or 'road <description>' and press Enter to label logs.")
-    print("Example: 'style aggressive' or 'road highway'")
-    print("Initial classifications are 'UNKNOWN_STYLE' and 'UNKNOWN_ROAD'.")
+    print("Classifications (Style, Road, Traffic) will be determined automatically.")
 
-    current_driving_style = "UNKNOWN_STYLE"
-    current_road_type = "UNKNOWN_ROAD"
+    current_driving_style = DRIVING_STYLE_UNKNOWN
+    current_road_type = ROAD_TYPE_UNKNOWN
+    current_traffic_condition = TRAFFIC_CONDITION_UNKNOWN
 
-    BASE_LOG_INTERVAL = .5  # for high frequency data
+    # Initialize deques for rolling data for this session
+    # This ensures they are reset if main() were ever called multiple times (though not typical for this script)
+    global recent_rpm_values, recent_throttle_pos_values, recent_speed_values
+    recent_rpm_values.clear()
+    recent_throttle_pos_values.clear()
+    recent_speed_values.clear()
+
+    BASE_LOG_INTERVAL = .4  # for high frequency data
     LOW_FREQUENCY_GROUP_POLL_INTERVAL = 45.0  # Interval in seconds to poll one group of LF PIDs 
     NUM_LOW_FREQUENCY_GROUPS = 3
 
@@ -110,8 +173,8 @@ def main():
                                  fast=False,
                                  timeout=30) 
         else:
-            print("Attempting to connect via socat PTY /dev/ttys030...")
-            connection = obd.OBD("/dev/ttys034", fast=True, timeout=30) # Auto-scan for USB/Bluetooth
+            print("Attempting to connect via socat PTY /dev/ttys011...")
+            connection = obd.OBD("/dev/ttys011", fast=True, timeout=30) # Auto-scan for USB/Bluetooth
 
         if not connection.is_connected():
             print("Failed to connect to OBD-II adapter.")
@@ -132,7 +195,8 @@ def main():
         initial_log_entry = {
             'timestamp': datetime.datetime.now().isoformat(),
             'driving_style': current_driving_style,
-            'road_type': current_road_type
+            'road_type': current_road_type,
+            'traffic_condition': current_traffic_condition
         }
         
         print("Polling initial High-Frequency PIDs...")
@@ -164,7 +228,7 @@ def main():
     file_exists = os.path.isfile(CSV_FILENAME)
     try:
         with open(CSV_FILENAME, 'a', newline='') as csvfile:
-            header_names = ['timestamp', 'driving_style', 'road_type'] + [pid.name for pid in ALL_PIDS_TO_LOG]
+            header_names = ['timestamp', 'driving_style', 'road_type', 'traffic_condition'] + [pid.name for pid in ALL_PIDS_TO_LOG]
             writer = csv.DictWriter(csvfile, fieldnames=header_names)
 
             if not file_exists or os.path.getsize(CSV_FILENAME) == 0:
@@ -174,7 +238,7 @@ def main():
             if initial_log_entry: 
                 writer.writerow(initial_log_entry)
                 csvfile.flush()
-                print(f"Logged initial full sample. Style: {current_driving_style}, Road: {current_road_type}.")
+                print(f"Logged initial full sample. Style: {current_driving_style}, Road: {current_road_type}, Traffic: {current_traffic_condition}.")
             
             # Reset LF poll timer to start 2-min delay AFTER initial full sample
             last_low_frequency_group_poll_time = time.monotonic()
@@ -186,28 +250,6 @@ def main():
             
             log_count = 0
             while True:
-                if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
-                    raw_input = sys.stdin.readline().strip()
-                    if raw_input: # Only process if the input is not empty
-                        parts = raw_input.lower().split(maxsplit=1)
-                        command = parts[0]
-                        value = parts[1] if len(parts) > 1 else ""
-
-                        if command == "style":
-                            if value:
-                                current_driving_style = raw_input[len("style "):].strip() # Preserve case from original input after command
-                                print(f"\nDriving style updated to: {current_driving_style}\n")
-                            else:
-                                print("\nUsage: style <description>\n")
-                        elif command == "road":
-                            if value:
-                                current_road_type = raw_input[len("road "):].strip() # Preserve case from original input after command
-                                print(f"\nRoad type updated to: {current_road_type}\n")
-                            else:
-                                print("\nUsage: road <description>\n")
-                        else:
-                            print(f"\nUnknown command '{command}'. Use 'style <desc>' or 'road <desc>'. \n")
-
                 loop_start_time = time.monotonic()
                 current_datetime = datetime.datetime.now()
                 timestamp_iso = current_datetime.isoformat()
@@ -215,7 +257,8 @@ def main():
                 log_entry = {
                     'timestamp': timestamp_iso,
                     'driving_style': current_driving_style,
-                    'road_type': current_road_type
+                    'road_type': current_road_type,
+                    'traffic_condition': current_traffic_condition
                 }
                 for pid_name in current_pid_values: # Initialize with last known values
                     log_entry[pid_name] = current_pid_values[pid_name]
@@ -248,12 +291,33 @@ def main():
                     last_low_frequency_group_poll_time = time.monotonic()
                     current_low_frequency_group_index = (current_low_frequency_group_index + 1) % len(low_frequency_pid_groups)
 
+                current_rpm = current_pid_values.get(obd.commands.RPM.name)
+                current_throttle_pos = current_pid_values.get(obd.commands.THROTTLE_POS.name)
+                current_speed = current_pid_values.get(obd.commands.SPEED.name)
+
+                if isinstance(current_rpm, (int, float)):
+                    recent_rpm_values.append(current_rpm)
+                if isinstance(current_throttle_pos, (int, float)):
+                    recent_throttle_pos_values.append(current_throttle_pos)
+                if isinstance(current_speed, (int, float)):
+                    recent_speed_values.append(current_speed)
+
+                # Call classification functions if enough data is available
+                if len(recent_speed_values) >= MIN_SAMPLES_FOR_CLASSIFICATION: # Use speed deque length as a proxy for general data availability
+                    current_driving_style = determine_driving_style(recent_rpm_values, recent_throttle_pos_values, recent_speed_values)
+                    current_road_type = determine_road_type(recent_speed_values)
+                    current_traffic_condition = determine_traffic_condition(recent_speed_values)
+                else:
+                    current_driving_style = DRIVING_STYLE_UNKNOWN
+                    current_road_type = ROAD_TYPE_UNKNOWN
+                    current_traffic_condition = TRAFFIC_CONDITION_UNKNOWN
+
                 writer.writerow(log_entry)
                 csvfile.flush()  
 
                 log_count += 1
                 if log_count % 10 == 0: 
-                    status_msg = f"Logged entry {log_count} (Style: {current_driving_style}, Road: {current_road_type}): {timestamp_iso} - HF PIDs Read: {hf_reads}/{len(HIGH_FREQUENCY_PIDS)}"
+                    status_msg = f"Logged entry {log_count} (Style: {current_driving_style}, Road: {current_road_type}, Traffic: {current_traffic_condition}): {timestamp_iso} - HF PIDs Read: {hf_reads}/{len(HIGH_FREQUENCY_PIDS)}"
                     if lf_reads_this_cycle > 0 or lf_group_polled_this_cycle != "None":
                          status_msg += f" - LF PIDs ({lf_group_polled_this_cycle}) Read: {lf_reads_this_cycle}/unknown_total_for_group_easily"
                     print(status_msg)
@@ -271,6 +335,44 @@ def main():
             print("Closing OBD-II connection.")
             connection.close()
         print(f"Data logging stopped. CSV file '{CSV_FILENAME}' saved.")
+
+def determine_driving_style(rpm_dq, throttle_dq, speed_dq):
+    avg_rpm = get_average(rpm_dq)
+    avg_throttle = get_average(throttle_dq)
+    avg_moving_speed = get_average(speed_dq, exclude_below=0.1) 
+
+    if avg_throttle > 50 or avg_rpm > 3500 and avg_moving_speed > 30: # heavy tuning required 
+        return DRIVING_STYLE_AGGRESSIVE
+    elif avg_throttle > 20 or avg_rpm > 2000:
+        return DRIVING_STYLE_MODERATE
+    else:
+        return DRIVING_STYLE_PASSIVE
+
+def determine_road_type(speed_dq, sustained_duration_samples=10, highway_speed_threshold=95, city_speed_upper_threshold=68, moving_speed_threshold=0.1):
+    avg_moving_speed = get_average(speed_dq, exclude_below=moving_speed_threshold)
+    
+    if len(speed_dq) >= sustained_duration_samples:
+        # For sustained speed check, we look at raw recent speeds, including brief slowdowns if mostly high speed.
+        sustained_high_speed_count = sum(1 for speed in list(speed_dq)[-sustained_duration_samples:] if speed > highway_speed_threshold)
+        if sustained_high_speed_count >= sustained_duration_samples * 0.7: 
+            return ROAD_TYPE_HIGHWAY
+    
+    if avg_moving_speed > 0 and avg_moving_speed < city_speed_upper_threshold: # Must be moving to be considered for city speed
+        return ROAD_TYPE_CITY 
+    # If avg_moving_speed is 0 (e.g. prolonged stop but not enough for heavy traffic), or doesn't fit highway/city.
+    return ROAD_TYPE_UNKNOWN # Default if not clearly highway or city based on moving speed
+
+def determine_traffic_condition(speed_dq, stop_threshold=5, heavy_traffic_stop_freq=0.3, low_speed_heavy_traffic=20):
+    avg_speed_inclusive_stops = get_average(speed_dq) # For traffic, overall average including stops is important
+    num_stops = count_stops(speed_dq, stop_threshold)
+    stop_frequency = num_stops / len(speed_dq) if len(speed_dq) > 0 else 0
+
+    if stop_frequency >= heavy_traffic_stop_freq and avg_speed_inclusive_stops < low_speed_heavy_traffic:
+        return TRAFFIC_CONDITION_HEAVY
+    elif avg_speed_inclusive_stops < 40 or stop_frequency > 0.1: # Example thresholds
+        return TRAFFIC_CONDITION_MODERATE
+    else:
+        return TRAFFIC_CONDITION_LIGHT
 
 if __name__ == "__main__":
     main() 
