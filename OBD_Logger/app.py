@@ -80,23 +80,27 @@ class OBDEntry(BaseModel):
     data: dict
     status: str = None  # Optional for control signal (start/end streaming)
 
+# Direct centralized timestamp format
+def normalize_timestamp(ts):
+    return ts.replace(":", "-").replace(" ", "T").replace("/", "-")
+
 # Real time endpoint
 @app.post("/ingest")
 def ingest(entry: OBDEntry, background_tasks: BackgroundTasks):
-    logger.info(f"Ingest received: {entry.timestamp} | Status: {entry.status}")
+    norm_ts = normalize_timestamp(entry.timestamp)
+    logger.info(f"Ingest received: {norm_ts} | Status: {entry.status}")
     # Start logging
     if entry.status == "start":
-        PIPELINE_EVENTS[entry.timestamp] = {"status": "started", "time": entry.timestamp}
+        PIPELINE_EVENTS[norm_ts] = {"status": "started", "time": norm_ts}
         return {"status": "started"}
     # End logging, start processing
     if entry.status == "end":
-        PIPELINE_EVENTS[entry.timestamp]["status"] = "processed"
-        background_tasks.add_task(process_data, entry.timestamp)
+        background_tasks.add_task(process_data, norm_ts)
         return {"status": "processed"}
     # Normal row append
     try:
         df = pd.read_csv(RAW_CSV)
-        row = {"timestamp": entry.timestamp, "driving_style": entry.driving_style}
+        row = {"timestamp": norm_ts, "driving_style": entry.driving_style}
         row.update(entry.data)
         df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
         df.to_csv(RAW_CSV, index=False)
@@ -110,41 +114,45 @@ def ingest(entry: OBDEntry, background_tasks: BackgroundTasks):
 # ───────────── Bulk CSV Upload ───────────────────
 @app.post("/upload-csv/")
 async def upload_csv(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
+    ts = datetime.datetime.now().isoformat()
+    norm_ts = normalize_timestamp(ts)
     path = os.path.join(BASE_DIR, file.filename)
+    PIPELINE_EVENTS[norm_ts] = {"status": "started", "time": norm_ts}
     with open(path, "wb") as f:
         f.write(await file.read())
     logger.info(f"CSV uploaded: {path}")
-    ts = datetime.datetime.now().isoformat()
-    background_tasks.add_task(process_uploaded_csv, path, ts)
+    background_tasks.add_task(process_uploaded_csv, path, norm_ts)
     return {"status": "processing started", "file": file.filename}
 
 
 # ───────────── Data Processing ──────────────────
 # Bulk CSV
-def process_uploaded_csv(path, timestamp_str):
+def process_uploaded_csv(path, norm_ts):
     try:
         df = pd.read_csv(path, parse_dates=["timestamp"])
-        _process_and_save(df, timestamp_str)
+        PIPELINE_EVENTS[norm_ts] = {
+            "status": "processed",
+            "time": norm_ts
+        }
+        _process_and_save(df, norm_ts)
     except Exception as e:
         logger.error(f"CSV processing failed: {e}")
 
 # Process streaming
-def process_data(timestamp_str):
+def process_data(norm_ts):
     try:
         df = pd.read_csv(RAW_CSV, parse_dates=["timestamp"])
-        _process_and_save(df, timestamp_str)
+        PIPELINE_EVENTS[norm_ts] = {
+            "status": "processed",
+            "time": norm_ts
+        }
+        _process_and_save(df, norm_ts)
     except Exception as e:
         logger.error(f"Streamed data processing failed: {e}")
 
-# Direct centralized timestamp format
-def normalize_timestamp(ts):
-    return ts.replace(":", "-").replace(" ", "T").replace("/", "-")
 
 # All processing pipeline
-def _process_and_save(df, timestamp_str):
-    norm_ts = normalize_timestamp(timestamp_str)
-    PIPELINE_EVENTS[norm_ts] = PIPELINE_EVENTS.get(timestamp_str, {})
-    PIPELINE_EVENTS[norm_ts]["status"] = "processed"
+def _process_and_save(df, norm_ts):
     logger.info("🔧 Cleaning started")
     protected_cols = {"timestamp", "driving_style"}
     df.drop(columns=[c for c in df if c not in protected_cols and (df[c].nunique() <= 1 or df[c].isna().all())], inplace=True)
@@ -178,7 +186,9 @@ def _process_and_save(df, timestamp_str):
         sns.heatmap(df.select_dtypes(include=[np.number]).corr(), annot=True, fmt=".2f", cmap="coolwarm")
         plt.title("Correlation Between Numeric OBD-II Variables")
         plt.tight_layout()
+        logger.info(f"Saving heatmap to: {os.path.join(PLOT_DIR, f'heatmap_{norm_ts}.png')}")
         plt.savefig(os.path.join(PLOT_DIR, f"heatmap_{norm_ts}.png"))
+        logger.info("✅ Heatmap saved successfully")
         plt.close()
     except Exception as e:
         logger.error(f"Heatmap generation failed: {e}")
@@ -196,12 +206,12 @@ def _process_and_save(df, timestamp_str):
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
+        logger.info(f"Saving sensor trend to: {os.path.join(PLOT_DIR, f'trend_{norm_ts}.png')}")
         plt.savefig(os.path.join(PLOT_DIR, f"trend_{norm_ts}.png"))
+        logger.info("✅ Sensor trend logs saved successfully")
         plt.close()
     except Exception as e:
         logger.error(f"Trend plot failed: {e}")
-    logger.info(f"Saving heatmap to: heatmap_{norm_ts}.png")
-    logger.info(f"Saving trend plot to: trend_{norm_ts}.png")
     # Update event
     PIPELINE_EVENTS[norm_ts]["status"] = "done"
     # Point to Drive service

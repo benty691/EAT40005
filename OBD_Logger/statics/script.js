@@ -5,10 +5,12 @@ async function fetchEvents() {
     renderEvents(data);
 }
 
+
 // Ensure img filename is in valid format
 function sanitizeFilename(ts) {
     return ts.replace(/:/g, '-').replace(/ /g, 'T').replace(/\//g, '-');
 }
+
 
 // Render card changes on event
 function renderEvents(events) {
@@ -38,25 +40,34 @@ function renderEvents(events) {
             <div class="status">Cleaned data saved. Insights is ready.</div>
             <button class="btn-expand" onclick="toggleExpand('${key}')">Expand</button>
             <div id="expand-${key}" class="expanded-content">
-            <img src="/statics/plots/heatmap_${sanitizeFilename(key)}.png" width="100%">
-            <img src="/statics/plots/trend_${sanitizeFilename(key)}.png" width="100%">
+            <img src="/statics/plots/heatmap_${key}.png" width="100%">
+            <img src="/statics/plots/trend_${key}.png" width="100%">
             </div>`;
         }
         container.appendChild(div);
     });
 }
 
+
 // Ensure timestamp name is in hh:mm dd/mm/yyyy
-function formatTimestamp(ts) {
-    const dt = new Date(ts);
-    return dt.toLocaleTimeString() + ' ' + dt.toLocaleDateString();
+function formatTimestamp(norm_ts) {
+    try {
+        const iso = norm_ts.replace("T", " ").replace(/-/g, ":").replace(/(\d+):(\d+):(\d+):/, "$1:$2:$3.");
+        const dt = new Date(iso);
+        if (isNaN(dt.getTime())) throw new Error("Invalid date");
+        return dt.toLocaleTimeString() + ' ' + dt.toLocaleDateString();
+    } catch (err) {
+        return norm_ts;  // fallback
+    }
 }
+
 
 // Expand dropdown insight element
 function toggleExpand(key) {
     const el = document.getElementById(`expand-${key}`);
     el.style.display = el.style.display === 'block' ? 'none' : 'block';
 }
+
 
 // Permanently remove item 
 function removeItem(key) {
@@ -65,5 +76,6 @@ function removeItem(key) {
     fetch(`/events/remove/${key}`, { method: 'DELETE' });
 }
 
+
 fetchEvents();
-setInterval(fetchEvents, 3000);
+setInterval(fetchEvents, 5000); // Refresh each 5s or less if needed
