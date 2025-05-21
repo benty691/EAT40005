@@ -1,117 +1,127 @@
 const expandedItems = JSON.parse(localStorage.getItem("expandedItems") || "{}");
 let previousKeys = [];
 
+
+// ─────────────────────────────────────────
+// Refresh event per interval
+// ─────────────────────────────────────────
 async function fetchEvents() {
     const res = await fetch('/events');
     const data = await res.json();
-    const container = document.getElementById('log-container');
+    renderEvents(data);
+}
 
-    const currentKeys = Object.keys(data).sort();
-    const newlyAdded = currentKeys.find(key => !previousKeys.includes(key));
+
+// ─────────────────────────────────────────
+// Update or Create new card
+// ─────────────────────────────────────────
+function renderEvents(events) {
+    const container = document.getElementById('log-container');
+    const currentKeys = Object.keys(events).sort();
+    const newlyAdded = currentKeys.find(k => !previousKeys.includes(k));
     previousKeys = currentKeys;
 
     currentKeys.forEach(key => {
-        const eventData = data[key];
-        const cardId = `card-${key}`;
-        const existing = document.getElementById(cardId);
-
+        const event = events[key];
+        const existing = document.getElementById(`card-${key}`);
         if (!existing) {
-            const newCard = createCard(key, eventData);
-            container.appendChild(newCard);
-
-            if (key === newlyAdded && eventData.status === 'done') {
-                setTimeout(() => newCard.scrollIntoView({ behavior: 'smooth', block: 'center' }), 500);
+            const card = createCard(key, event);
+            container.appendChild(card);
+            if (key === newlyAdded && event.status === 'done') {
+                setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
             }
         } else {
-            updateCardStatus(key, eventData);
+            updateCard(key, event);
         }
     });
 }
 
 
 // ─────────────────────────────────────────
-// Create a new card for new key
+// Create new card on unmatched key 
 // ─────────────────────────────────────────
-function createCard(key, data) {
+function createCard(key, event) {
+    const readable = formatTimestamp(key);
+    const safeKey = key.replace(/[:.]/g, "-");
     const card = document.createElement('div');
     card.id = `card-${key}`;
-    card.classList.add('card');
+    card.className = 'card';
 
-    const safeKey = sanitizeFilename(key);
-    const readable = formatTimestamp(key);
-    const isExpanded = expandedItems[key];
-
-    // Remove button
     const removeBtn = document.createElement('button');
-    removeBtn.classList.add('btn-remove');
-    removeBtn.textContent = "X";
+    removeBtn.className = 'btn-remove';
+    removeBtn.textContent = 'X';
     removeBtn.onclick = () => removeItem(key);
+
+    const tsDiv = document.createElement('div');
+    tsDiv.className = 'timestamp';
+    tsDiv.textContent = readable;
+
+    const statusDiv = document.createElement('div');
+    statusDiv.className = 'status';
+
+    const actionDiv = document.createElement('div');
+    actionDiv.className = 'actions';
+
     card.appendChild(removeBtn);
+    card.appendChild(tsDiv);
+    card.appendChild(statusDiv);
+    card.appendChild(actionDiv);
 
-    // Timestamp
-    const ts = document.createElement('div');
-    ts.classList.add('timestamp');
-    ts.textContent = readable;
-    card.appendChild(ts);
+    updateCardContent(card, key, event);
 
-    // Status
-    const status = document.createElement('div');
-    status.classList.add('status');
-    card.appendChild(status);
-
-    // Actions (expand etc.)
-    const actions = document.createElement('div');
-    actions.classList.add('actions');
-
-    if (data.status === "done") {
-        const expandBtn = document.createElement('button');
-        expandBtn.classList.add('btn-expand');
-        expandBtn.textContent = "Expand";
-        expandBtn.onclick = () => toggleExpand(key);
-        actions.appendChild(expandBtn);
-
-        const expandDiv = document.createElement('div');
-        expandDiv.id = `expand-${key}`;
-        expandDiv.classList.add('expanded-content');
-        if (isExpanded) expandDiv.classList.add('show');
-
-        expandDiv.innerHTML = `
-            <img src="/plots/heatmap_${safeKey}.png" width="100%">
-            <img src="/plots/trend_${safeKey}.png" width="100%">
-        `;
-        actions.appendChild(expandDiv);
-    }
-
-    card.appendChild(actions);
-    updateCardStatus(key, data); // apply background + text
     return card;
 }
 
 
 // ─────────────────────────────────────────
-// Update card status/colors only
+// Validate existing card
 // ─────────────────────────────────────────
-function updateCardStatus(key, data) {
+function updateCard(key, event) {
     const card = document.getElementById(`card-${key}`);
-    if (!card) return;
-
-    const status = card.querySelector('.status');
-    let statusText = "";
-    let color = "#ccc";
-
-    if (data.status === "started") {
-        statusText = "Received signal. Data logging started.";
-        color = "#780606";
-    } else if (data.status === "processed") {
-        statusText = "Data logging finished. Start cleaning process.";
-        color = "#2e6930";
-    } else if (data.status === "done") {
-        statusText = "Cleaned data saved. Insights is ready.";
-        color = "#8a00c2";
+    if (card) {
+        updateCardContent(card, key, event);
     }
+}
 
-    if (status) status.textContent = statusText;
-    card.style.backgroundColor = color;
+
+// ─────────────────────────────────────────
+// Update existing card content
+// ─────────────────────────────────────────
+function updateCardContent(card, key, event) {
+    const statusDiv = card.querySelector('.status');
+    const actionDiv = card.querySelector('.actions');
+    const safeKey = key.replace(/[:.]/g, "-");
+
+    // Reset and repopulate action div only if not already populated
+    actionDiv.innerHTML = '';
+    if (event.status === 'started') {
+        statusDiv.textContent = "Received signal. Data logging started.";
+        card.style.backgroundColor = '#780606';
+    } else if (event.status === 'processed') {
+        statusDiv.textContent = "Data logging finished. Start cleaning process.";
+        card.style.backgroundColor = '#2e6930';
+    } else if (event.status === 'done') {
+        statusDiv.textContent = "Cleaned data saved. Insights is ready.";
+        card.style.backgroundColor = '#8a00c2';
+
+        const expandBtn = document.createElement('button');
+        expandBtn.className = 'btn-expand';
+        expandBtn.textContent = 'Expand';
+        expandBtn.onclick = () => toggleExpand(key);
+
+        const expandDiv = document.createElement('div');
+        expandDiv.id = `expand-${key}`;
+        expandDiv.className = 'expanded-content';
+        if (expandedItems[key]) expandDiv.classList.add('show');
+
+        expandDiv.innerHTML = `
+            <img src="/plots/heatmap_${safeKey}.png" width="100%">
+            <img src="/plots/trend_${safeKey}.png" width="100%">
+        `;
+
+        actionDiv.appendChild(expandBtn);
+        actionDiv.appendChild(expandDiv);
+    }
 }
 
 
@@ -153,12 +163,12 @@ function formatTimestamp(norm_ts) {
         if (parts.length !== 2) throw new Error("Invalid format");
         const datePart = parts[0];
         const timePart = parts[1].split("-");
-
+        // Ensure full time format
         if (timePart.length < 3) throw new Error("Incomplete time");
         const formatted = `${datePart}T${timePart[0]}:${timePart[1]}:${timePart[2]}`;
         const dt = new Date(formatted);
         if (isNaN(dt.getTime())) throw new Error("Invalid date");
-
+        // Locale to string
         const timeStr = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const dateStr = dt.toLocaleDateString('en-GB');
         return `${timeStr} ${dateStr}`;
