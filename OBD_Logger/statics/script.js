@@ -21,91 +21,80 @@ function renderEvents(events) {
     const currentKeys = Object.keys(events).sort();
     const newlyAdded = currentKeys.find(key => !previousKeys.includes(key));
     previousKeys = currentKeys;
-    // Create card on ts key
+
     currentKeys.forEach(key => {
         const e = events[key];
         const safeKey = key.replace(/[:.]/g, "-");
         const isExpanded = expandedItems[key] === true;
-        const existingCard = document.getElementById(`card-${key}`);
-        // Same-key card already exist
-        if (!existingCard) {
-            // Create new card once
-            const div = document.createElement('div');
-            div.id = `card-${key}`;
-            div.classList.add('card');
-            // hh:mm dd/mm/yyyy format ts
-            const readable = formatTimestamp(key);
-            div.style.backgroundColor = '#ccc';  // default
-            // HTML div format
-            div.innerHTML = `
+        let card = document.getElementById(`card-${key}`);
+        const readable = formatTimestamp(key);
+
+        // New card
+        if (!card) {
+            card = document.createElement('div');
+            card.id = `card-${key}`;
+            card.classList.add('card');
+            card.style.backgroundColor = '#ccc';
+
+            card.innerHTML = `
                 <button class="btn-remove" onclick="removeItem('${key}')">X</button>
                 <div class="timestamp">${readable}</div>
                 <div class="status"></div>
                 <div class="actions"></div>
             `;
-            // Components
-            const statusDiv = div.querySelector('.status');
-            const actionDiv = div.querySelector('.actions');
-            // Status changes to div stylings and contents
-            if (e.status === 'started') {
-                statusDiv.textContent = "Received signal. Data logging started.";
-                div.style.backgroundColor = '#780606';
-            } else if (e.status === 'processed') {
-                statusDiv.textContent = "Data logging finished. Start cleaning process.";
-                div.style.backgroundColor = '#2e6930';
-            } else if (e.status === 'done') {
-                statusDiv.textContent = "Cleaned data saved. Insights is ready.";
-                div.style.backgroundColor = '#8a00c2';
-                // Expand btn listener
-                const expandBtn = document.createElement('button');
-                expandBtn.classList.add('btn-expand');
-                expandBtn.textContent = "Expand";
-                expandBtn.onclick = () => toggleExpand(key);
-                actionDiv.appendChild(expandBtn);
-                // On expansion
-                const expandDiv = document.createElement('div');
-                expandDiv.id = `expand-${key}`;
-                expandDiv.classList.add('expanded-content');
-                if (isExpanded) expandDiv.classList.add('show');
-                // Expanded content for plots
-                expandDiv.innerHTML = `
-                    <img src="/plots/heatmap_${safeKey}.png" width="100%">
-                    <img src="/plots/trend_${safeKey}.png" width="100%">
-                `;
-                actionDiv.appendChild(expandDiv);
-            }
-            // Final container
-            container.appendChild(div);
-            // Animation on expansion
+            container.appendChild(card);
+
             if (key === newlyAdded && e.status === 'done') {
-                setTimeout(() => div.scrollIntoView({ behavior: 'smooth', block: 'center' }), 500);
+                setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
             }
-        } else {
-            // Update only what's changed
-            const statusDiv = existingCard.querySelector('.status');
-            const newStatus = e.status === 'done'
-                ? "Cleaned data saved. Insights is ready."
-                : e.status === 'processed'
-                    ? "Data logging finished. Start cleaning process."
-                    : "Received signal. Data logging started.";
-            // Old key-card must not be re-rendered
-            if (statusDiv && statusDiv.textContent !== newStatus) {
-                statusDiv.textContent = newStatus;
-            }
-            // Color changes on status
-            const bgColor = e.status === 'done'
-                ? '#8a00c2'
-                : e.status === 'processed'
-                    ? '#2e6930'
-                    : '#780606';
-            // Fallback colors
-            if (existingCard.style.backgroundColor !== bgColor) {
-                existingCard.style.backgroundColor = bgColor;
-            }
+        }
+
+        // Update card content
+        const statusDiv = card.querySelector('.status');
+        const actionsDiv = card.querySelector('.actions');
+        const currentStatus = statusDiv.textContent;
+
+        const bgColor = {
+            'started': '#780606',
+            'processed': '#2e6930',
+            'done': '#8a00c2'
+        }[e.status] || '#ccc';
+
+        const newStatus = {
+            'started': "Received signal. Data logging started.",
+            'processed': "Data logging finished. Start cleaning process.",
+            'done': "Cleaned data saved. Insights is ready."
+        }[e.status] || "Unknown status";
+
+        // Only update if needed
+        if (currentStatus !== newStatus) {
+            statusDiv.textContent = newStatus;
+        }
+        if (card.style.backgroundColor !== bgColor) {
+            card.style.backgroundColor = bgColor;
+        }
+
+        // If now 'done' but not already rendered insight, attach plots
+        if (e.status === 'done' && !card.querySelector(`#expand-${key}`)) {
+            const expandBtn = document.createElement('button');
+            expandBtn.className = 'btn-expand';
+            expandBtn.textContent = "Expand";
+            expandBtn.onclick = () => toggleExpand(key);
+            actionsDiv.appendChild(expandBtn);
+
+            const expandDiv = document.createElement('div');
+            expandDiv.id = `expand-${key}`;
+            expandDiv.className = 'expanded-content';
+            if (isExpanded) expandDiv.classList.add('show');
+
+            expandDiv.innerHTML = `
+                <img src="/plots/heatmap_${safeKey}.png" width="100%">
+                <img src="/plots/trend_${safeKey}.png" width="100%">
+            `;
+            actionsDiv.appendChild(expandDiv);
         }
     });
 }
-
 
 
 // Ensure timestamp name is in hh:mm dd/mm/yyyy
@@ -138,6 +127,7 @@ function formatTimestamp(norm_ts) {
 // Expand dropdown insight element (keep on already expanded key)
 function toggleExpand(key) {
     const el = document.getElementById(`expand-${key}`);
+    if (!el) return;
     const showing = el.classList.contains('show');
     if (showing) {
         el.classList.remove('show');
