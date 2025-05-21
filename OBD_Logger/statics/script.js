@@ -1,133 +1,125 @@
 const expandedItems = JSON.parse(localStorage.getItem("expandedItems") || "{}");
 let previousKeys = [];
 
-// Listen to event from FastAPI
 async function fetchEvents() {
     const res = await fetch('/events');
     const data = await res.json();
-    renderEvents(data);
-}
-
-
-// Ensure img filename is in valid format
-function sanitizeFilename(ts) {
-    return ts.replace(/:/g, '-').replace(/ /g, 'T').replace(/\//g, '-');
-}
-
-
-// Render card changes on event
-function renderEvents(events) {
     const container = document.getElementById('log-container');
-    const currentKeys = Object.keys(events).sort();
+
+    const currentKeys = Object.keys(data).sort();
     const newlyAdded = currentKeys.find(key => !previousKeys.includes(key));
     previousKeys = currentKeys;
 
     currentKeys.forEach(key => {
-        const e = events[key];
-        const safeKey = key.replace(/[:.]/g, "-");
-        const isExpanded = expandedItems[key] === true;
-        let card = document.getElementById(`card-${key}`);
-        const readable = formatTimestamp(key);
+        const eventData = data[key];
+        const cardId = `card-${key}`;
+        const existing = document.getElementById(cardId);
 
-        // New card
-        if (!card) {
-            card = document.createElement('div');
-            card.id = `card-${key}`;
-            card.classList.add('card');
-            card.style.backgroundColor = '#ccc';
+        if (!existing) {
+            const newCard = createCard(key, eventData);
+            container.appendChild(newCard);
 
-            card.innerHTML = `
-                <button class="btn-remove" onclick="removeItem('${key}')">X</button>
-                <div class="timestamp">${readable}</div>
-                <div class="status"></div>
-                <div class="actions"></div>
-            `;
-            container.appendChild(card);
-
-            if (key === newlyAdded && e.status === 'done') {
-                setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
+            if (key === newlyAdded && eventData.status === 'done') {
+                setTimeout(() => newCard.scrollIntoView({ behavior: 'smooth', block: 'center' }), 500);
             }
-        }
-
-        // Update card content
-        const statusDiv = card.querySelector('.status');
-        const actionsDiv = card.querySelector('.actions');
-        const currentStatus = statusDiv.textContent;
-
-        const bgColor = {
-            'started': '#780606',
-            'processed': '#2e6930',
-            'done': '#8a00c2'
-        }[e.status] || '#ccc';
-
-        const newStatus = {
-            'started': "Received signal. Data logging started.",
-            'processed': "Data logging finished. Start cleaning process.",
-            'done': "Cleaned data saved. Insights is ready."
-        }[e.status] || "Unknown status";
-
-        // Only update if needed
-        if (currentStatus !== newStatus) {
-            statusDiv.textContent = newStatus;
-        }
-        if (card.style.backgroundColor !== bgColor) {
-            card.style.backgroundColor = bgColor;
-        }
-
-        // If now 'done' but not already rendered insight, attach plots
-        if (e.status === 'done' && !card.querySelector(`#expand-${key}`)) {
-            const expandBtn = document.createElement('button');
-            expandBtn.className = 'btn-expand';
-            expandBtn.textContent = "Expand";
-            expandBtn.onclick = () => toggleExpand(key);
-            actionsDiv.appendChild(expandBtn);
-
-            const expandDiv = document.createElement('div');
-            expandDiv.id = `expand-${key}`;
-            expandDiv.className = 'expanded-content';
-            if (isExpanded) expandDiv.classList.add('show');
-
-            expandDiv.innerHTML = `
-                <img src="/plots/heatmap_${safeKey}.png" width="100%">
-                <img src="/plots/trend_${safeKey}.png" width="100%">
-            `;
-            actionsDiv.appendChild(expandDiv);
+        } else {
+            updateCardStatus(key, eventData);
         }
     });
 }
 
 
-// Ensure timestamp name is in hh:mm dd/mm/yyyy
-function formatTimestamp(norm_ts) {
-    try {
-        // Expected input: "2025-05-21T19-50-13-708146"
-        // Step 1: Replace the time hyphens with colons
-        const parts = norm_ts.split("T");
-        if (parts.length !== 2) throw new Error("Invalid format");
-        // Split date-time
-        const datePart = parts[0]; // "2025-05-21"
-        const timePart = parts[1].split("-"); // ["19", "50", "13", "708146"]
-        // Check wrong format
-        if (timePart.length < 3) throw new Error("Incomplete time");
-        // Append new format
-        const formatted = `${datePart}T${timePart[0]}:${timePart[1]}:${timePart[2]}`; // "2025-05-21T19:50:13"
-        const dt = new Date(formatted);
-        if (isNaN(dt.getTime())) throw new Error("Invalid date");
-        // Locale for proper string
-        const timeStr = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const dateStr = dt.toLocaleDateString('en-GB'); // dd/mm/yyyy
-        return `${timeStr} ${dateStr}`;
-    } catch (err) {
-        console.warn("formatTimestamp fallback:", err.message);
-        return norm_ts;
+// ─────────────────────────────────────────
+// Create a new card for new key
+// ─────────────────────────────────────────
+function createCard(key, data) {
+    const card = document.createElement('div');
+    card.id = `card-${key}`;
+    card.classList.add('card');
+
+    const safeKey = sanitizeFilename(key);
+    const readable = formatTimestamp(key);
+    const isExpanded = expandedItems[key];
+
+    // Remove button
+    const removeBtn = document.createElement('button');
+    removeBtn.classList.add('btn-remove');
+    removeBtn.textContent = "X";
+    removeBtn.onclick = () => removeItem(key);
+    card.appendChild(removeBtn);
+
+    // Timestamp
+    const ts = document.createElement('div');
+    ts.classList.add('timestamp');
+    ts.textContent = readable;
+    card.appendChild(ts);
+
+    // Status
+    const status = document.createElement('div');
+    status.classList.add('status');
+    card.appendChild(status);
+
+    // Actions (expand etc.)
+    const actions = document.createElement('div');
+    actions.classList.add('actions');
+
+    if (data.status === "done") {
+        const expandBtn = document.createElement('button');
+        expandBtn.classList.add('btn-expand');
+        expandBtn.textContent = "Expand";
+        expandBtn.onclick = () => toggleExpand(key);
+        actions.appendChild(expandBtn);
+
+        const expandDiv = document.createElement('div');
+        expandDiv.id = `expand-${key}`;
+        expandDiv.classList.add('expanded-content');
+        if (isExpanded) expandDiv.classList.add('show');
+
+        expandDiv.innerHTML = `
+            <img src="/plots/heatmap_${safeKey}.png" width="100%">
+            <img src="/plots/trend_${safeKey}.png" width="100%">
+        `;
+        actions.appendChild(expandDiv);
     }
+
+    card.appendChild(actions);
+    updateCardStatus(key, data); // apply background + text
+    return card;
 }
 
 
-// Expand dropdown insight element (keep on already expanded key)
+// ─────────────────────────────────────────
+// Update card status/colors only
+// ─────────────────────────────────────────
+function updateCardStatus(key, data) {
+    const card = document.getElementById(`card-${key}`);
+    if (!card) return;
+
+    const status = card.querySelector('.status');
+    let statusText = "";
+    let color = "#ccc";
+
+    if (data.status === "started") {
+        statusText = "Received signal. Data logging started.";
+        color = "#780606";
+    } else if (data.status === "processed") {
+        statusText = "Data logging finished. Start cleaning process.";
+        color = "#2e6930";
+    } else if (data.status === "done") {
+        statusText = "Cleaned data saved. Insights is ready.";
+        color = "#8a00c2";
+    }
+
+    if (status) status.textContent = statusText;
+    card.style.backgroundColor = color;
+}
+
+
+// ─────────────────────────────────────────
+// Toggle card expansion
+// ─────────────────────────────────────────
 function toggleExpand(key) {
     const el = document.getElementById(`expand-${key}`);
-    if (!el) return;
     const showing = el.classList.contains('show');
     if (showing) {
         el.classList.remove('show');
@@ -140,15 +132,51 @@ function toggleExpand(key) {
 }
 
 
-// Delete item permanently
+// ─────────────────────────────────────────
+// Remove a card item
+// ─────────────────────────────────────────
 function removeItem(key) {
-    const el = document.getElementById(`expand-${key}`)?.parentElement;
-    if (el) el.remove();
+    const card = document.getElementById(`card-${key}`);
+    if (card) card.remove();
     delete expandedItems[key];
     localStorage.setItem("expandedItems", JSON.stringify(expandedItems));
     fetch(`/events/remove/${key}`, { method: 'DELETE' });
 }
 
 
+// ─────────────────────────────────────────
+// Format timestamp as hh:mm dd/mm/yyyy
+// ─────────────────────────────────────────
+function formatTimestamp(norm_ts) {
+    try {
+        const parts = norm_ts.split("T");
+        if (parts.length !== 2) throw new Error("Invalid format");
+        const datePart = parts[0];
+        const timePart = parts[1].split("-");
+
+        if (timePart.length < 3) throw new Error("Incomplete time");
+        const formatted = `${datePart}T${timePart[0]}:${timePart[1]}:${timePart[2]}`;
+        const dt = new Date(formatted);
+        if (isNaN(dt.getTime())) throw new Error("Invalid date");
+
+        const timeStr = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const dateStr = dt.toLocaleDateString('en-GB');
+        return `${timeStr} ${dateStr}`;
+    } catch (err) {
+        console.warn("formatTimestamp fallback:", err.message);
+        return norm_ts;
+    }
+}
+
+
+// ─────────────────────────────────────────
+// Sanitize filenames from timestamp
+// ─────────────────────────────────────────
+function sanitizeFilename(ts) {
+    return ts.replace(/:/g, '-').replace(/ /g, 'T').replace(/\//g, '-');
+}
+
+
+// ─────────────────────────────────────────
 fetchEvents();
-setInterval(fetchEvents, 1000); // Refresh each 1s, less or more if needed
+setInterval(fetchEvents, 1000);
