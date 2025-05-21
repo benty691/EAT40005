@@ -65,6 +65,7 @@ def upload_to_folder(service, file_path, folder_id):
 
 # ───────────── Render Dashboard UI ──────────────
 app.mount("/statics", StaticFiles(directory="statics"), name="statics")
+app.mount("/statics/plots", StaticFiles(directory="cache/obd_data/plots"), name="plots") # Graph
 templates = Jinja2Templates(directory="statics")
 # Endpoint
 @app.get("/ui", response_class=HTMLResponse)
@@ -77,23 +78,33 @@ class OBDEntry(BaseModel):
     timestamp: str
     driving_style: str
     data: dict
+    status: str = None  # Optional for control signal (start/end streaming)
 
 # Real time endpoint
 @app.post("/ingest")
 def ingest(entry: OBDEntry, background_tasks: BackgroundTasks):
-    logger.info(f"Ingest: {entry.timestamp} / {entry.driving_style}")
+    logger.info(f"Ingest received: {entry.timestamp} | Status: {entry.status}")
+    # Start logging
+    if entry.status == "start":
+        PIPELINE_EVENTS[entry.timestamp] = {"status": "started", "time": entry.timestamp}
+        return {"status": "started"}
+    # End logging, start processing
+    if entry.status == "end":
+        PIPELINE_EVENTS[entry.timestamp]["status"] = "processed"
+        background_tasks.add_task(process_data, entry.timestamp)
+        return {"status": "processed"}
+    # Normal row append
     try:
         df = pd.read_csv(RAW_CSV)
         row = {"timestamp": entry.timestamp, "driving_style": entry.driving_style}
         row.update(entry.data)
         df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
         df.to_csv(RAW_CSV, index=False)
-        PIPELINE_EVENTS[entry.timestamp] = {"status": "started", "time": entry.timestamp}
-        background_tasks.add_task(process_data, entry.timestamp)
-        return {"status": "ingested"}
+        return {"status": "row appended"}
     except Exception as e:
         logger.error(f"Streaming ingest failed: {e}")
         raise HTTPException(status_code=500, detail="Ingest error")
+
 
 
 # ───────────── Bulk CSV Upload ───────────────────
@@ -156,8 +167,7 @@ def _process_and_save(df, timestamp_str):
     out_path = os.path.join(CLEANED_DIR, f"cleaned_{ts}.csv")
     df.to_csv(out_path, index=False)
     logger.info(f"✅ Cleaned saved: {out_path}")
-
-    # Save Heatmap
+    # Save Heatmap (timestamp as id)
     try:
         plt.figure(figsize=(12, 10))
         sns.heatmap(df.select_dtypes(include=[np.number]).corr(), annot=True, fmt=".2f", cmap="coolwarm")
@@ -167,7 +177,7 @@ def _process_and_save(df, timestamp_str):
         plt.close()
     except Exception as e:
         logger.error(f"Heatmap generation failed: {e}")
-    # Save Sensor Trend Chart
+    # Save Sensor Trend Chart (timestamp as id)
     try:
         plt.figure(figsize=(15, 6))
         for col in ['RPM', 'ENGINE_LOAD', 'ABSOLUTE_LOAD', 'COOLANT_TEMP',
@@ -208,6 +218,14 @@ def health():
 @app.get("/events")
 def get_events():
     return PIPELINE_EVENTS
+
+
+# ────── Delete event from dashboard ──────────────
+@app.delete("/events/remove/{timestamp}")
+def remove_event(timestamp: str):
+    if timestamp in PIPELINE_EVENTS:
+        del PIPELINE_EVENTS[timestamp]
+    return {"status": "deleted"}
 
 
 # ───────────── Download Cleaned ──────────────────

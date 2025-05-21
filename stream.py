@@ -1,11 +1,11 @@
-import requests
-import time
-import datetime
-import random
+import requests, random, datetime, time
 
+# API Handler
 API_URL = "https://binkhoale1812-obd-logger.hf.space/ingest"
 DRIVING_STYLES = ["aggressive", "passive", "normal"]
+SESSION_TS = datetime.datetime.now().isoformat()
 
+# Random data generation
 def generate_fake_obd_data():
     return {
         "RPM": random.randint(800, 4000),
@@ -18,28 +18,31 @@ def generate_fake_obd_data():
         "MAF": round(random.uniform(0.5, 10.0), 2)
     }
 
-def simulate_logging():
-    total_duration = 15  # seconds
-    interval = 0.2       # seconds per sample
-    num_entries = int(total_duration / interval)
+# Handshake with server
+def send_control_signal(stage):
+    requests.post(API_URL, json={
+        "timestamp": SESSION_TS,
+        "driving_style": "none",
+        "data": {},
+        "status": stage  # 'start' or 'end'
+    })
 
+# Simulate driver sensor logging
+def simulate_logging():
+    send_control_signal("start")
+    total_duration = 15
+    interval = 0.2
+    num_entries = int(total_duration / interval)
     for i in range(num_entries):
         payload = {
-            "timestamp": datetime.datetime.now().isoformat(),
+            "timestamp": SESSION_TS,
             "driving_style": random.choice(DRIVING_STYLES),
             "data": generate_fake_obd_data()
         }
-        try:
-            res = requests.post(API_URL, json=payload)
-            if res.status_code == 200:
-                print(f"[✓] Entry {i+1} sent: {payload['timestamp']}")
-            else:
-                print(f"[✗] Failed: {res.status_code} - {res.text}")
-        except Exception as e:
-            print(f"[!] Error sending data: {e}")
+        res = requests.post(API_URL, json=payload)
         time.sleep(interval)
-
-    print("✅ Simulation complete. Now check cleaned CSV output.")
+    input("Press [Q] to stop logging...")
+    send_control_signal("end")
 
 if __name__ == "__main__":
     simulate_logging()
