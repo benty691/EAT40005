@@ -2,6 +2,7 @@
 fastapi
 uvicorn[standard]
 python-multipart
+jinja2
 
 # Data
 pandas
@@ -15,3 +16,7 @@ google-auth
 google-auth-httplib2
 google-auth-oauthlib
 google-api-python-client
+
+# Visualize
+matplotlib
+seaborn
