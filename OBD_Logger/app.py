@@ -136,9 +136,15 @@ def process_data(timestamp_str):
     except Exception as e:
         logger.error(f"Streamed data processing failed: {e}")
 
+# Direct centralized timestamp format
+def normalize_timestamp(ts):
+    return ts.replace(":", "-").replace(" ", "T").replace("/", "-")
+
 # All processing pipeline
 def _process_and_save(df, timestamp_str):
-    PIPELINE_EVENTS[timestamp_str]["status"] = "processed"
+    norm_ts = normalize_timestamp(timestamp_str)
+    PIPELINE_EVENTS[norm_ts] = PIPELINE_EVENTS.get(timestamp_str, {})
+    PIPELINE_EVENTS[norm_ts]["status"] = "processed"
     logger.info("🔧 Cleaning started")
     protected_cols = {"timestamp", "driving_style"}
     df.drop(columns=[c for c in df if c not in protected_cols and (df[c].nunique() <= 1 or df[c].isna().all())], inplace=True)
@@ -163,8 +169,7 @@ def _process_and_save(df, timestamp_str):
     if {"MAF", "RPM"}.issubset(df.columns):
         df["AIRFLOW_PER_RPM"] = df["MAF"] / df["RPM"].replace(0, np.nan)
     # Prepare filename
-    ts = timestamp_str.replace(":", "-").replace(" ", "T").replace("/", "-")
-    out_path = os.path.join(CLEANED_DIR, f"cleaned_{ts}.csv")
+    out_path = os.path.join(CLEANED_DIR, f"cleaned_{norm_ts}.csv")
     df.to_csv(out_path, index=False)
     logger.info(f"✅ Cleaned saved: {out_path}")
     # Save Heatmap (timestamp as id)
@@ -173,7 +178,7 @@ def _process_and_save(df, timestamp_str):
         sns.heatmap(df.select_dtypes(include=[np.number]).corr(), annot=True, fmt=".2f", cmap="coolwarm")
         plt.title("Correlation Between Numeric OBD-II Variables")
         plt.tight_layout()
-        plt.savefig(os.path.join(PLOT_DIR, f"heatmap_{ts}.png"))
+        plt.savefig(os.path.join(PLOT_DIR, f"heatmap_{norm_ts}.png"))
         plt.close()
     except Exception as e:
         logger.error(f"Heatmap generation failed: {e}")
@@ -191,12 +196,14 @@ def _process_and_save(df, timestamp_str):
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
-        plt.savefig(os.path.join(PLOT_DIR, f"trend_{ts}.png"))
+        plt.savefig(os.path.join(PLOT_DIR, f"trend_{norm_ts}.png"))
         plt.close()
     except Exception as e:
         logger.error(f"Trend plot failed: {e}")
+    logger.info(f"Saving heatmap to: heatmap_{norm_ts}.png")
+    logger.info(f"Saving trend plot to: trend_{norm_ts}.png")
     # Update event
-    PIPELINE_EVENTS[timestamp_str]["status"] = "done"
+    PIPELINE_EVENTS[norm_ts]["status"] = "done"
     # Point to Drive service
     service = get_drive_service()
     if service:
