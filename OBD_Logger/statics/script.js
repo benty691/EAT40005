@@ -35,13 +35,14 @@ function renderEvents(events) {
             <div class="status">Data logging finished. Start cleaning process.</div>`;
         } else if (status === 'done') {
         div.style.backgroundColor = '#8a00c2'; //purple
+        const safeKey = key.replace(/[:.]/g, "-"); // Double check on key format, re-sanitizing ts
         div.innerHTML = `<button class="btn-remove" onclick="removeItem('${key}')">X</button>
             <div class="timestamp">${readable}</div>
             <div class="status">Cleaned data saved. Insights is ready.</div>
             <button class="btn-expand" onclick="toggleExpand('${key}')">Expand</button>
             <div id="expand-${key}" class="expanded-content">
-            <img src="/statics/plots/heatmap_${key}.png" width="100%">
-            <img src="/statics/plots/trend_${key}.png" width="100%">
+            <img src="/statics/plots/heatmap_${safeKey}.png" width="100%">
+            <img src="/statics/plots/trend_${safeKey}.png" width="100%">
             </div>`;
         }
         container.appendChild(div);
