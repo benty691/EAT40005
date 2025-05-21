@@ -15,7 +15,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import matplotlib.pyplot as plt
 import seaborn as sns
-
+import re
 
 # ───────────── Logging Setup ─────────────
 logger = logging.getLogger("obd-logger")
@@ -84,7 +84,7 @@ class OBDEntry(BaseModel):
 
 # Direct centralized timestamp format
 def normalize_timestamp(ts):
-    return ts.replace(":", "-").replace(" ", "T").replace("/", "-")
+    return ts.replace(":", "-").replace(".", "-").replace(" ", "T").replace("/", "-")
 
 # Real time endpoint
 @app.post("/ingest")
