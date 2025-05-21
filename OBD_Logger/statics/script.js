@@ -48,12 +48,19 @@ function renderEvents(events) {
             <div class="timestamp">${readable}</div>
             <div class="status">Cleaned data saved. Insights is ready.</div>
             <button class="btn-expand" onclick="toggleExpand('${key}')">Expand</button>
-            <div id="expand-${key}" class="expanded-content ${isExpanded ? 'show' : ''}">
+            <div id="expand-${key}" class="expanded-content">
                 <img src="/plots/heatmap_${safeKey}.png" width="100%">
                 <img src="/plots/trend_${safeKey}.png" width="100%">
             </div>`;
         }
         container.appendChild(div);
+        // Apply expanded class after DOM insert
+        if (status === 'done' && expandedItems[key]) {
+            setTimeout(() => {
+                const el = document.getElementById(`expand-${key}`);
+                if (el && !el.classList.contains("show")) el.classList.add("show");
+            }, 0);
+        }
         // Scroll to newest
         if (key === newlyAdded && status === 'done') {
             setTimeout(() => div.scrollIntoView({ behavior: 'smooth', block: 'center' }), 500);

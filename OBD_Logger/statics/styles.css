@@ -76,7 +76,6 @@ h1 {
 /* Expanded content */
 .expanded-content {
   margin-top: 1.2rem;
-  display: none;
   animation: fadeIn 0.3s ease-in-out;
   max-height: 0;
   overflow: hidden;
