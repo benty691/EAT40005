@@ -21,6 +21,7 @@ h1 {
   margin: auto;
 }
 
+/* Card display */
 .card {
   border-radius: 10px;
   padding: 1.2rem 1.5rem;
@@ -30,22 +31,20 @@ h1 {
   transition: transform 0.3s ease, background-color 0.3s ease;
   overflow: hidden;
 }
-
 .card:hover {
   transform: translateY(-3px);
 }
-
 .status {
   font-weight: 600;
   font-size: 1.1rem;
 }
-
 .timestamp {
   font-size: 0.95rem;
   opacity: 0.9;
   margin-top: 4px;
 }
 
+/* All buttons */
 .btn-expand,
 .btn-remove {
   margin-top: 1rem;
@@ -56,16 +55,13 @@ h1 {
   border-radius: 4px;
   transition: background-color 0.2s ease;
 }
-
 .btn-expand {
   background-color: rgba(255, 255, 255, 0.25);
   color: white;
 }
-
 .btn-expand:hover {
   background-color: rgba(255, 255, 255, 0.4);
 }
-
 .btn-remove {
   position: absolute;
   top: 10px;
@@ -73,31 +69,37 @@ h1 {
   background: rgba(255, 255, 255, 0.15);
   color: white;
 }
-
 .btn-remove:hover {
   background: rgba(255, 255, 255, 0.3);
 }
 
+/* Expanded content */
 .expanded-content {
   margin-top: 1.2rem;
   display: none;
   animation: fadeIn 0.3s ease-in-out;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.4s ease-in-out, opacity 0.3s ease;
+  opacity: 0;
 }
-
+.expanded-content.show {
+  max-height: 1000px;
+  opacity: 1;
+}
 .expanded-content img {
   margin-top: 1rem;
   border-radius: 6px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
+/* Colors */
 .card.red {
   background-color: #e74c3c;
 }
-
 .card.green {
   background-color: #27ae60;
 }
-
 .card.purple {
   background-color: #8e44ad;
 }
