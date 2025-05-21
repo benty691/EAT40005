@@ -19,51 +19,63 @@ function sanitizeFilename(ts) {
 function renderEvents(events) {
     const container = document.getElementById('log-container');
     const currentKeys = Object.keys(events).sort();
-    // Allow scroll on cards on keys
-    const newlyAdded = currentKeys.find(key => !previousKeys.includes(key));
-    previousKeys = currentKeys;
-    container.innerHTML = '';
+    // Create each card on ts keys
     currentKeys.forEach(key => {
         const e = events[key];
-        const status = e.status;
-        const readable = formatTimestamp(key);
-        const div = document.createElement('div');
-        div.classList.add('card');
-        // Change card status
-        if (status === 'started') {
-        div.style.backgroundColor = '#780606'; //red
-        div.innerHTML = `<button class="btn-remove" onclick="removeItem('${key}')">X</button>
-            <div class="timestamp">${readable}</div>
-            <div class="status">Received signal. Data logging started.</div>`;
-        } else if (status === 'processed') {
-        div.style.backgroundColor = '#2e6930'; //green
-        div.innerHTML = `<button class="btn-remove" onclick="removeItem('${key}')">X</button>
-            <div class="timestamp">${readable}</div>
-            <div class="status">Data logging finished. Start cleaning process.</div>`;
-        } else if (status === 'done') {
-        div.style.backgroundColor = '#8a00c2'; //purple
-        const safeKey = key.replace(/[:.]/g, "-"); // Double check on key format, re-sanitizing ts
+        const existing = document.getElementById(`card-${key}`);
+        const safeKey = key.replace(/[:.]/g, "-");
         const isExpanded = expandedItems[key] === true;
-        div.innerHTML = `<button class="btn-remove" onclick="removeItem('${key}')">X</button>
-            <div class="timestamp">${readable}</div>
-            <div class="status">Cleaned data saved. Insights is ready.</div>
-            <button class="btn-expand" onclick="toggleExpand('${key}')">Expand</button>
-            <div id="expand-${key}" class="expanded-content">
-                <img src="/plots/heatmap_${safeKey}.png" width="100%">
-                <img src="/plots/trend_${safeKey}.png" width="100%">
-            </div>`;
-        }
-        container.appendChild(div);
-        // Apply expanded class after DOM insert
-        if (status === 'done' && expandedItems[key]) {
-            setTimeout(() => {
-                const el = document.getElementById(`expand-${key}`);
-                if (el && !el.classList.contains("show")) el.classList.add("show");
-            }, 0);
-        }
-        // Scroll to newest
-        if (key === newlyAdded && status === 'done') {
-            setTimeout(() => div.scrollIntoView({ behavior: 'smooth', block: 'center' }), 500);
+        // Same key exist, only changed
+        if (!existing) {
+            const div = document.createElement('div');
+            div.id = `card-${key}`;
+            div.classList.add('card');
+            // Color and message settings
+            let bgColor = '#ccc', statusText = 'Pending';
+            if (e.status === 'started') {
+                bgColor = '#780606';
+                statusText = 'Received signal. Data logging started.';
+            } else if (e.status === 'processed') {
+                bgColor = '#2e6930';
+                statusText = 'Data logging finished. Start cleaning process.';
+            } else if (e.status === 'done') {
+                bgColor = '#8a00c2';
+                statusText = 'Cleaned data saved. Insights is ready.';
+            }
+            // Done element with expand btn and plot block
+            div.style.backgroundColor = bgColor;
+            div.innerHTML = `
+                <button class="btn-remove" onclick="removeItem('${key}')">X</button>
+                <div class="timestamp">${formatTimestamp(key)}</div>
+                <div class="status">${statusText}</div>
+                ${e.status === 'done' ? `
+                    <button class="btn-expand" onclick="toggleExpand('${key}')">Expand</button>
+                    <div id="expand-${key}" class="expanded-content ${isExpanded ? 'show' : ''}">
+                        <img src="/plots/heatmap_${safeKey}.png" width="100%">
+                        <img src="/plots/trend_${safeKey}.png" width="100%">
+                    </div>` : ''
+                }
+            `;
+            // Append done element with animation
+            container.appendChild(div);
+            if (e.status === 'done') {
+                setTimeout(() => div.scrollIntoView({ behavior: 'smooth', block: 'center' }), 500);
+            }
+        // Create new dynamically
+        } else {
+            // Update only status text or color if changed
+            const statusEl = existing.querySelector('.status');
+            const currentStatus = statusEl?.textContent;
+            const newStatus = e.status === 'done' ? "Cleaned data saved. Insights is ready."
+                            : e.status === 'processed' ? "Data logging finished. Start cleaning process."
+                            : "Received signal. Data logging started.";
+            // Change status
+            if (currentStatus !== newStatus) {
+                statusEl.textContent = newStatus;
+                existing.style.backgroundColor =
+                    e.status === 'done' ? '#8a00c2' :
+                    e.status === 'processed' ? '#2e6930' : '#780606';
+            }
         }
     });
 }
