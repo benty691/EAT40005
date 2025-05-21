@@ -41,8 +41,8 @@ function renderEvents(events) {
             <div class="status">Cleaned data saved. Insights is ready.</div>
             <button class="btn-expand" onclick="toggleExpand('${key}')">Expand</button>
             <div id="expand-${key}" class="expanded-content">
-            <img src="/statics/plots/heatmap_${safeKey}.png" width="100%">
-            <img src="/statics/plots/trend_${safeKey}.png" width="100%">
+            <img src="/plots/heatmap_${safeKey}.png" width="100%">
+            <img src="/plots/trend_${safeKey}.png" width="100%">
             </div>`;
         }
         container.appendChild(div);

@@ -67,7 +67,7 @@ def upload_to_folder(service, file_path, folder_id):
 
 # ───────────── Render Dashboard UI ──────────────
 app.mount("/statics", StaticFiles(directory="statics"), name="statics")
-app.mount("/statics/plots", StaticFiles(directory=str(PLOT_DIR)), name="plots") # Graph
+app.mount("/plots", StaticFiles(directory=str(PLOT_DIR)), name="plots")
 templates = Jinja2Templates(directory="statics")
 # Endpoint
 @app.get("/ui", response_class=HTMLResponse)
