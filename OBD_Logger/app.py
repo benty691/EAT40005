@@ -1,4 +1,5 @@
 # Access: https://binkhoale1812-obd-logger.hf.space/ui
+import pathlib
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -30,13 +31,14 @@ app = FastAPI(title="OBD-II Logging & Processing API")
 
 
 # ───────────── Directory Paths ─────────────
-BASE_DIR = './cache/obd_data'
+APP_ROOT = pathlib.Path(__file__).parent.resolve()  # Absolute base dir
+BASE_DIR = os.path.join(APP_ROOT, './cache/obd_data')
 CLEANED_DIR = os.path.join(BASE_DIR, "cleaned")
 PLOT_DIR = os.path.join(BASE_DIR, "plots")
 RAW_CSV = os.path.join(BASE_DIR, "raw_logs.csv")
+os.makedirs(BASE_DIR, exist_ok=True)
 os.makedirs(CLEANED_DIR, exist_ok=True)
 os.makedirs(PLOT_DIR, exist_ok=True)
-os.makedirs(BASE_DIR, exist_ok=True)
 # Init temp empty file
 if not os.path.exists(RAW_CSV):
     pd.DataFrame(columns=["timestamp", "driving_style"]).to_csv(RAW_CSV, index=False)
@@ -65,7 +67,7 @@ def upload_to_folder(service, file_path, folder_id):
 
 # ───────────── Render Dashboard UI ──────────────
 app.mount("/statics", StaticFiles(directory="statics"), name="statics")
-app.mount("/statics/plots", StaticFiles(directory="cache/obd_data/plots"), name="plots") # Graph
+app.mount("/statics/plots", StaticFiles(directory=str(PLOT_DIR)), name="plots") # Graph
 templates = Jinja2Templates(directory="statics")
 # Endpoint
 @app.get("/ui", response_class=HTMLResponse)
