@@ -87,7 +87,8 @@ def ingest(entry: OBDEntry, background_tasks: BackgroundTasks):
         row.update(entry.data)
         df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
         df.to_csv(RAW_CSV, index=False)
-        background_tasks.add_task(process_data)
+        PIPELINE_EVENTS[entry.timestamp] = {"status": "started", "time": entry.timestamp}
+        background_tasks.add_task(process_data, entry.timestamp)
         return {"status": "ingested"}
     except Exception as e:
         logger.error(f"Streaming ingest failed: {e}")
