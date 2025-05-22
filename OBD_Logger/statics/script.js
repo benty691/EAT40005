@@ -171,7 +171,7 @@ function formatTimestamp(norm_ts) {
         const dt = new Date(year, month - 1, day, hour, minute, second);
         // Write string
         const timeStr = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const dateStr = dt.toLocaleDateString('en-GB');
+        const dateStr = dt.toLocaleDateString('en-AU');
         return `${timeStr} ${dateStr}`;
     } catch (err) {
         console.warn("formatTimestamp fallback:", err.message);
