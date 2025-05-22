@@ -167,6 +167,8 @@ function formatTimestamp(norm_ts) {
         // Reformat 
         const [year, month, day] = datePart.split("-").map(Number);
         const [hour, minute, second] = timeParts.map(Number);
+        // Subtract 2 hours, handling underflow
+        hour = (hour - 2 + 24) % 24;
         // Create Date in local time (note: month is 0-based)
         const dt = new Date(year, month - 1, day, hour, minute, second);
         // Write string
