@@ -160,12 +160,16 @@ function formatTimestamp(norm_ts) {
     try {
         const parts = norm_ts.split("T");
         if (parts.length !== 2) throw new Error("Invalid format");
-        const datePart = parts[0];
-        const timePart = parts[1].split("-");
-        if (timePart.length < 3) throw new Error("Incomplete time");
-        const formatted = `${datePart}T${timePart[0]}:${timePart[1]}:${timePart[2]}`;
-        const dt = new Date(formatted);
-        if (isNaN(dt.getTime())) throw new Error("Invalid date");
+        // Extract date and time parts
+        const datePart = parts[0]; // e.g., "2025-05-21"
+        const timeParts = parts[1].split("-"); // ["hh", "mm", "ss"]
+        if (timeParts.length < 3) throw new Error("Incomplete time");
+        // Reformat 
+        const [year, month, day] = datePart.split("-").map(Number);
+        const [hour, minute, second] = timeParts.map(Number);
+        // Create Date in local time (note: month is 0-based)
+        const dt = new Date(year, month - 1, day, hour, minute, second);
+        // Write string
         const timeStr = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const dateStr = dt.toLocaleDateString('en-GB');
         return `${timeStr} ${dateStr}`;
@@ -174,6 +178,7 @@ function formatTimestamp(norm_ts) {
         return norm_ts;
     }
 }
+
 
 // ─────────────────────────────────────────
 // Sanitize filenames from timestamp
