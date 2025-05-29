@@ -28,11 +28,11 @@ MIN_SAMPLES_FOR_CLASSIFICATION = 10
 # ROC needs tuning
 SHORT_ROC_WINDOW_SIZE = 3  
 MIN_SAMPLES_FOR_ROC_CHECK = SHORT_ROC_WINDOW_SIZE 
-ROC_THROTTLE_AGGRESSIVE_THRESHOLD = 30.0  
-ROC_RPM_AGGRESSIVE_THRESHOLD = 800.0      
-ROC_SPEED_AGGRESSIVE_THRESHOLD = 10.0     
-MIN_RPM_FOR_AGGRESSIVE_TRIGGER = 1700.0   
-AGGRESSIVE_EVENT_COOLDOWN_SAMPLES = 12    
+ROC_THROTTLE_AGGRESSIVE_THRESHOLD = 25.0  
+ROC_RPM_AGGRESSIVE_THRESHOLD = 700.0      
+ROC_SPEED_AGGRESSIVE_THRESHOLD = 8.0     
+MIN_RPM_FOR_AGGRESSIVE_TRIGGER = 1000.0   
+AGGRESSIVE_EVENT_COOLDOWN_SAMPLES = 15    
 
 recent_rpm_values = deque(maxlen=ROLLING_WINDOW_SIZE)
 recent_throttle_pos_values = deque(maxlen=ROLLING_WINDOW_SIZE)
@@ -127,7 +127,7 @@ def main():
     recent_speed_values.clear()
 
     BASE_LOG_INTERVAL = .3  # for high frequency data
-    LOW_FREQUENCY_GROUP_POLL_INTERVAL = 60.0  # Interval in seconds to poll one group of LF PIDs 
+    LOW_FREQUENCY_GROUP_POLL_INTERVAL = 90.0  # Interval in seconds to poll one group of LF PIDs 
     NUM_LOW_FREQUENCY_GROUPS = 3
 
     # Prepare Low-Frequency PID groups
@@ -170,7 +170,7 @@ def main():
                                  timeout=30) 
         else:
             print("Attempting to connect via socat PTY /dev/ttys011...")
-            connection = obd.OBD("/dev/ttys011", fast=True, timeout=30) # Auto-scan for USB/Bluetooth
+            connection = obd.OBD("/dev/ttys021", fast=True, timeout=30) # Auto-scan for USB/Bluetooth
 
         if not connection.is_connected():
             print("Failed to connect to OBD-II adapter.")
