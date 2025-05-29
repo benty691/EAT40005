@@ -1,5 +1,4 @@
 const expandedItems = JSON.parse(localStorage.getItem("expandedItems") || "{}");
-const renamedLabels = JSON.parse(localStorage.getItem("renamedLabels") || "{}"); // Allow card to change their name (original identified by ts)
 let previousKeys = [];
 let previousEvents = {}; // Track event status to avoid redundant updates
 
@@ -57,14 +56,7 @@ function createCard(key, event) {
 
     const tsDiv = document.createElement('div');
     tsDiv.className = 'timestamp';
-    tsDiv.innerHTML = `<span class="label-text">${readable}</span>`;
-
-    const editIcon = document.createElement('img');
-    editIcon.src = '/statics/edit.png';
-    editIcon.className = 'icon-edit';
-    editIcon.onclick = () => toggleEditMode(tsDiv, key);
-    tsDiv.appendChild(editIcon);
-
+    tsDiv.textContent = readable;
 
     const statusDiv = document.createElement('div');
     statusDiv.className = 'status';
@@ -78,6 +70,7 @@ function createCard(key, event) {
     card.appendChild(actionDiv);
 
     updateCardContent(card, key, event);
+
     return card;
 }
 
@@ -149,42 +142,6 @@ function toggleExpand(key, btn) {
 }
 
 // ─────────────────────────────────────────
-// Toggle card edit-view mode
-// ─────────────────────────────────────────
-function toggleEditMode(container, key) {
-    const span = container.querySelector('.label-text');
-    const icon = container.querySelector('.icon-edit');
-
-    const currentLabel = span.textContent;
-    if (!container.classList.contains('editing')) {
-        // Switch to edit mode
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.value = currentLabel;
-        input.className = 'label-input';
-
-        span.replaceWith(input);
-        icon.src = '/statics/check.png';
-        container.classList.add('editing');
-    } else {
-        // Save new name
-        const input = container.querySelector('input');
-        const newLabel = input.value.trim() || formatTimestamp(key);
-
-        renamedLabels[key] = newLabel;
-        localStorage.setItem("renamedLabels", JSON.stringify(renamedLabels));
-
-        const newSpan = document.createElement('span');
-        newSpan.className = 'label-text';
-        newSpan.textContent = newLabel;
-
-        input.replaceWith(newSpan);
-        icon.src = '/statics/edit.png';
-        container.classList.remove('editing');
-    }
-}
-
-// ─────────────────────────────────────────
 // Remove a card item
 // ─────────────────────────────────────────
 function removeItem(key) {
@@ -210,13 +167,11 @@ function formatTimestamp(norm_ts) {
         // Reformat 
         const [year, month, day] = datePart.split("-").map(Number);
         const [hour, minute, second] = timeParts.map(Number);
-        // Subtract 2 hours, handling underflow
-        hour = (hour - 2 + 24) % 24;
         // Create Date in local time (note: month is 0-based)
         const dt = new Date(year, month - 1, day, hour, minute, second);
         // Write string
         const timeStr = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const dateStr = dt.toLocaleDateString('en-AU');
+        const dateStr = dt.toLocaleDateString('en-GB');
         return `${timeStr} ${dateStr}`;
     } catch (err) {
         console.warn("formatTimestamp fallback:", err.message);
