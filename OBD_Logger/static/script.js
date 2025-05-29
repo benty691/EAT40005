@@ -44,7 +44,7 @@ function renderEvents(events) {
 // Create new card on unmatched key 
 // ─────────────────────────────────────────
 function createCard(key, event) {
-    const readable = formatTimestamp(key);
+    const readable = renamedLabels[key] || formatTimestamp(key);
     const safeKey = key.replace(/[:.]/g, "-");
     const card = document.createElement('div');
     card.id = `card-${key}`;
@@ -152,32 +152,26 @@ function toggleExpand(key, btn) {
 // Toggle card edit-view mode
 // ─────────────────────────────────────────
 function toggleEditMode(container, key) {
-    const span = container.querySelector('.label-text');
     const icon = container.querySelector('.icon-edit');
-
-    const currentLabel = span.textContent;
     if (!container.classList.contains('editing')) {
-        // Switch to edit mode
+        const span = container.querySelector('.label-text');
+        if (!span) return;
         const input = document.createElement('input');
         input.type = 'text';
-        input.value = currentLabel;
+        input.value = span.textContent;
         input.className = 'label-input';
-
         span.replaceWith(input);
         icon.src = '/static/check.png';
         container.classList.add('editing');
     } else {
-        // Save new name
-        const input = container.querySelector('input');
+        const input = container.querySelector('.label-input');
+        if (!input) return;
         const newLabel = input.value.trim() || formatTimestamp(key);
-
         renamedLabels[key] = newLabel;
         localStorage.setItem("renamedLabels", JSON.stringify(renamedLabels));
-
         const newSpan = document.createElement('span');
         newSpan.className = 'label-text';
         newSpan.textContent = newLabel;
-
         input.replaceWith(newSpan);
         icon.src = '/static/edit.png';
         container.classList.remove('editing');
@@ -209,9 +203,8 @@ function formatTimestamp(norm_ts) {
         if (timeParts.length < 3) throw new Error("Incomplete time");
         // Reformat 
         const [year, month, day] = datePart.split("-").map(Number);
-        const [hour, minute, second] = timeParts.map(Number);
-        // Subtract 2 hours, handling underflow
-        hour = (hour - 2 + 24) % 24;
+        let [hour, minute, second] = timeParts.map(Number);
+        hour = (hour - 2 + 24) % 24;        
         // Create Date in local time (note: month is 0-based)
         const dt = new Date(year, month - 1, day, hour, minute, second);
         // Write string
