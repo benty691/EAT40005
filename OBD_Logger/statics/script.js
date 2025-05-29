@@ -1,4 +1,5 @@
 const expandedItems = JSON.parse(localStorage.getItem("expandedItems") || "{}");
+const renamedLabels = JSON.parse(localStorage.getItem("renamedLabels") || "{}"); // Allow card to change their name (original identified by ts)
 let previousKeys = [];
 let previousEvents = {}; // Track event status to avoid redundant updates
 
@@ -56,7 +57,13 @@ function createCard(key, event) {
 
     const tsDiv = document.createElement('div');
     tsDiv.className = 'timestamp';
-    tsDiv.textContent = readable;
+    tsDiv.innerHTML = `<span class="label-text">${readable}</span>`;
+
+    const editIcon = document.createElement('img');
+    editIcon.src = '/statics/edit.png';
+    editIcon.className = 'icon-edit';
+    editIcon.onclick = () => toggleEditMode(tsDiv, key);
+    tsDiv.appendChild(editIcon);
 
     const statusDiv = document.createElement('div');
     statusDiv.className = 'status';
@@ -139,6 +146,42 @@ function toggleExpand(key, btn) {
         btn.textContent = 'Collapse';
     }
     localStorage.setItem("expandedItems", JSON.stringify(expandedItems));
+}
+
+// ─────────────────────────────────────────
+// Toggle card edit-view modes
+// ─────────────────────────────────────────
+function toggleEditMode(container, key) {
+    const span = container.querySelector('.label-text');
+    const icon = container.querySelector('.icon-edit');
+
+    const currentLabel = span.textContent;
+    if (!container.classList.contains('editing')) {
+        // Switch to edit mode
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = currentLabel;
+        input.className = 'label-input';
+
+        span.replaceWith(input);
+        icon.src = '/statics/check.png';
+        container.classList.add('editing');
+    } else {
+        // Save new name
+        const input = container.querySelector('input');
+        const newLabel = input.value.trim() || formatTimestamp(key);
+
+        renamedLabels[key] = newLabel;
+        localStorage.setItem("renamedLabels", JSON.stringify(renamedLabels));
+
+        const newSpan = document.createElement('span');
+        newSpan.className = 'label-text';
+        newSpan.textContent = newLabel;
+
+        input.replaceWith(newSpan);
+        icon.src = '/statics/edit.png';
+        container.classList.remove('editing');
+    }
 }
 
 // ─────────────────────────────────────────
