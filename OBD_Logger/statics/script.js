@@ -65,6 +65,7 @@ function createCard(key, event) {
     editIcon.onclick = () => toggleEditMode(tsDiv, key);
     tsDiv.appendChild(editIcon);
 
+
     const statusDiv = document.createElement('div');
     statusDiv.className = 'status';
 
@@ -77,7 +78,6 @@ function createCard(key, event) {
     card.appendChild(actionDiv);
 
     updateCardContent(card, key, event);
-
     return card;
 }
 
@@ -149,7 +149,7 @@ function toggleExpand(key, btn) {
 }
 
 // ─────────────────────────────────────────
-// Toggle card edit-view modes
+// Toggle card edit-view mode
 // ─────────────────────────────────────────
 function toggleEditMode(container, key) {
     const span = container.querySelector('.label-text');
