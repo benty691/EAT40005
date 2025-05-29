@@ -60,7 +60,7 @@ function createCard(key, event) {
     tsDiv.innerHTML = `<span class="label-text">${readable}</span>`;
 
     const editIcon = document.createElement('img');
-    editIcon.src = '/statics/edit.png';
+    editIcon.src = '/static/edit.png';
     editIcon.className = 'icon-edit';
     editIcon.onclick = () => toggleEditMode(tsDiv, key);
     tsDiv.appendChild(editIcon);
@@ -164,7 +164,7 @@ function toggleEditMode(container, key) {
         input.className = 'label-input';
 
         span.replaceWith(input);
-        icon.src = '/statics/check.png';
+        icon.src = '/static/check.png';
         container.classList.add('editing');
     } else {
         // Save new name
@@ -179,7 +179,7 @@ function toggleEditMode(container, key) {
         newSpan.textContent = newLabel;
 
         input.replaceWith(newSpan);
-        icon.src = '/statics/edit.png';
+        icon.src = '/static/edit.png';
         container.classList.remove('editing');
     }
 }
