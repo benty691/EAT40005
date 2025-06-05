@@ -112,7 +112,7 @@ git subtree split --prefix=OBD_Logger -b hf-deploy
 git push hf hf-deploy:main --force
 ```
 
-## Data Streaming Simulation
+## Data Streaming Simulation:
 1. Direct post with CURL (1 entry only): 
 ```bash
 curl -X POST https://binkhoale1812-obd-logger.hf.space/ingest \
@@ -138,5 +138,10 @@ curl -X POST https://binkhoale1812-obd-logger.hf.space/upload-csv/ \
 curl -X POST https://binkhoale1812-obd-logger.hf.space/upload-csv/ \
      -H "accept: application/json" \
      -H "Content-Type: multipart/form-data" \
-     -F "file=@logs/Week 11/obd_data_log_20250521_095213.csv"
+     -F "file=@logs/Week 13/obd_data_log_20250604_163128.csv"
+```
+
+## Merging all cleaned logs:
+```bash
+python merge_logs.py
 ```
