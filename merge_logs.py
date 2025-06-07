@@ -13,7 +13,7 @@ output_dir = data_dir / 'merge'
 output_dir.mkdir(parents=True, exist_ok=True)
 output_file = output_dir / 'merged_w13.csv'
 
-# Collect all CSV files (excluding previously merged output if exists)
+# Collect all CSV files (excluding previously merged output if exists) - change filepath if needed
 csv_files = [f for f in data_dir.glob('*.csv') if f.name != 'merged_w13.csv']
 
 # Merge all CSVs
