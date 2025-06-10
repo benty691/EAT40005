@@ -23,6 +23,9 @@ COPY --chown=user . .
 # ── Make sure cache/log folders are owned by the user ──
 RUN mkdir -p $HOME/app/logs $HOME/app/cache $HOME/app/cache/obd_data
 
+# ── To store plots on write permission ──
+RUN mkdir -p $HOME/app/cache/obd_data/plots
+
 # ── Default port ──
 EXPOSE 7860
 

@@ -1,11 +1,14 @@
-import requests
-import time
-import datetime
-import random
+import requests, random, datetime, time
+from pynput import keyboard
 
+# API Handler
 API_URL = "https://binkhoale1812-obd-logger.hf.space/ingest"
 DRIVING_STYLES = ["aggressive", "passive", "normal"]
+SESSION_TS = datetime.datetime.now().isoformat()
 
+running = True  # Global flag to stop the stream
+
+# Random data generation
 def generate_fake_obd_data():
     return {
         "RPM": random.randint(800, 4000),
@@ -18,28 +21,54 @@ def generate_fake_obd_data():
         "MAF": round(random.uniform(0.5, 10.0), 2)
     }
 
-def simulate_logging():
-    total_duration = 15  # seconds
-    interval = 0.2       # seconds per sample
-    num_entries = int(total_duration / interval)
+# Handshake with server
+def send_control_signal(stage):
+    requests.post(API_URL, json={
+        "timestamp": SESSION_TS,
+        "driving_style": "none",
+        "data": {},
+        "status": stage  # 'start' or 'end'
+    })
 
-    for i in range(num_entries):
+# Key press listener
+def on_press(key):
+    global running
+    try:
+        if key.char.lower() == 'q':
+            print("\n[Q] pressed — stopping stream.")
+            running = False
+            return False  # Stop listener
+    except AttributeError:
+        pass
+
+# Simulate driver sensor logging
+def simulate_logging():
+    global running
+    print("Start Streaming Session. Press [Q] to stop logging...")
+    send_control_signal("start")
+    # Key press listener
+    listener = keyboard.Listener(on_press=on_press)
+    listener.start()
+    # Replicate each 0.2s
+    interval = 0.2
+    i = 0
+    while running:
         payload = {
-            "timestamp": datetime.datetime.now().isoformat(),
+            "timestamp": SESSION_TS,
             "driving_style": random.choice(DRIVING_STYLES),
             "data": generate_fake_obd_data()
         }
         try:
             res = requests.post(API_URL, json=payload)
-            if res.status_code == 200:
-                print(f"[✓] Entry {i+1} sent: {payload['timestamp']}")
-            else:
-                print(f"[✗] Failed: {res.status_code} - {res.text}")
+            print(f"[✓] Entry {i+1} sent: {payload['timestamp']}")
         except Exception as e:
-            print(f"[!] Error sending data: {e}")
+            print(f"[!] Error: {e}")
         time.sleep(interval)
+        i += 1
 
-    print("✅ Simulation complete. Now check cleaned CSV output.")
+    send_control_signal("end")
+    print("✅ Logging session ended.")
+
 
 if __name__ == "__main__":
     simulate_logging()
