@@ -21,9 +21,10 @@ import os, datetime, json, logging, re
 from datetime import timedelta
 import pathlib
 # Driver
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+from drive_saver import DriveSaver, get_drive_service, upload_to_folder
+
+# Database
+from mongo_saver import MongoSaver, save_csv_to_mongo, save_dataframe_to_mongo, MONGODB_AVAILABLE
 
 # ───────────── Logging Setup ─────────────
 logger = logging.getLogger("obd-logger")
@@ -54,24 +55,10 @@ if not os.path.exists(RAW_CSV):
 PIPELINE_EVENTS = {}
 
 
-# ───────────── Drive Auth ─────────────
-def get_drive_service():
-    try:
-        creds_dict = json.loads(os.getenv("GDRIVE_CREDENTIALS_JSON"))
-        creds = service_account.Credentials.from_service_account_info(
-            creds_dict,
-            scopes=["https://www.googleapis.com/auth/drive"]
-        )
-        return build("drive", "v3", credentials=creds)
-    except Exception as e:
-        logger.error(f"Drive init failed: {e}")
-        return None
-# Point to specific Drive path
-def upload_to_folder(service, file_path, folder_id):
-    file_name = os.path.basename(file_path)
-    media = MediaFileUpload(file_path, mimetype='text/csv')
-    metadata = {"name": file_name, "parents": [folder_id]}
-    return service.files().create(body=metadata, media_body=media, fields="id").execute()
+# ───────────── Drive & Database Services ─────────────
+# Initialize services
+drive_saver = DriveSaver()
+mongo_saver = MongoSaver()
 
 
 # ───────────── Render Dashboard UI ──────────────
@@ -421,14 +408,28 @@ def _process_and_save(df, norm_ts):
     except Exception:
         pass
     # 11) Upload to Drive
-    service = get_drive_service()
-    if service:
-        folder_id = "1r-wefqKbK9k9BeYDW1hXRbx4B-0Fvj5P"
-        try:
-            upload_to_folder(service, out_path, folder_id)
-            logger.info("✅ Uploaded to Drive")
-        except Exception as e:
-            logger.error(f"❌ Drive upload error: {e}")
+    try:
+        if drive_saver.is_service_available():
+            drive_saver.upload_csv_to_drive(out_path)
+            logger.info("✅ Uploaded to Google Drive")
+        else:
+            logger.warning("⚠️  Google Drive service not available")
+    except Exception as e:
+        logger.error(f"❌ Drive upload error: {e}")
+    
+    # 12) Save to MongoDB
+    try:
+        if mongo_saver.is_connected():
+            # Save the cleaned DataFrame directly to MongoDB
+            session_id = f"session_{norm_ts}"
+            if mongo_saver.save_dataframe_to_mongo(df, session_id):
+                logger.info("✅ Saved to MongoDB")
+            else:
+                logger.warning("⚠️  MongoDB save failed")
+        else:
+            logger.warning("⚠️  MongoDB not connected")
+    except Exception as e:
+        logger.error(f"❌ MongoDB save error: {e}")
 
 
 
@@ -459,3 +460,94 @@ def download_file(filename: str):
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Not found")
     return FileResponse(path, media_type='text/csv', filename=filename)
+
+
+# ───────────── MongoDB Operations ──────────────────
+@app.get("/mongo/status")
+def mongo_status():
+    """Check MongoDB connection status"""
+    return {
+        "connected": mongo_saver.is_connected(),
+        "available": MONGODB_AVAILABLE if 'MONGODB_AVAILABLE' in globals() else False
+    }
+
+
+@app.get("/mongo/sessions")
+def get_mongo_sessions():
+    """Get summary of all MongoDB sessions"""
+    if not mongo_saver.is_connected():
+        raise HTTPException(status_code=503, detail="MongoDB not connected")
+    
+    sessions = mongo_saver.get_session_summary()
+    return {"sessions": sessions}
+
+
+@app.get("/mongo/query")
+def query_mongo_data(
+    session_id: str = None,
+    driving_style: str = None,
+    start_time: str = None,
+    end_time: str = None,
+    limit: int = 1000
+):
+    """Query data from MongoDB with filters"""
+    if not mongo_saver.is_connected():
+        raise HTTPException(status_code=503, detail="MongoDB not connected")
+    
+    # Parse datetime strings if provided
+    start_dt = None
+    end_dt = None
+    
+    if start_time:
+        try:
+            start_dt = pd.to_datetime(start_time)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid start_time format")
+    
+    if end_time:
+        try:
+            end_dt = pd.to_datetime(end_time)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid end_time format")
+    
+    results = mongo_saver.query_data(
+        session_id=session_id,
+        driving_style=driving_style,
+        start_time=start_dt,
+        end_time=end_dt,
+        limit=limit
+    )
+    
+    return {"results": results, "count": len(results)}
+
+
+@app.post("/mongo/save-csv")
+async def save_csv_to_mongo_endpoint(
+    file: UploadFile = File(...),
+    session_id: str = None
+):
+    """Save uploaded CSV directly to MongoDB"""
+    if not mongo_saver.is_connected():
+        raise HTTPException(status_code=503, detail="MongoDB not connected")
+    
+    try:
+        # Save uploaded file temporarily
+        temp_path = os.path.join(BASE_DIR, f"temp_{file.filename}")
+        with open(temp_path, "wb") as f:
+            f.write(await file.read())
+        
+        # Save to MongoDB
+        success = mongo_saver.save_csv_to_mongo(temp_path, session_id)
+        
+        # Clean up temp file
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        
+        if success:
+            return {"status": "success", "message": "CSV saved to MongoDB"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to save to MongoDB")
+            
+    except Exception as e:
+        logger.error(f"CSV to MongoDB save failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Save failed: {str(e)}")
