@@ -7,66 +7,47 @@ from collections import deque
 import numpy as np 
 import shutil
 import subprocess
+import sys # For non-blocking input
+import select # For non-blocking input (Unix-like)
 
-DRIVING_STYLE_PASSIVE = "Passive"
-DRIVING_STYLE_MODERATE = "Moderate"
-DRIVING_STYLE_AGGRESSIVE = "Aggressive"
-DRIVING_STYLE_UNKNOWN = "UNKNOWN_STYLE"
+# Configuration removed - no longer doing driving style classification or labeling 
 
-ROAD_TYPE_LOCAL = "Local"
-ROAD_TYPE_MAIN = "Main"
-ROAD_TYPE_HIGHWAY = "Highway"
-ROAD_TYPE_UNKNOWN = "UNKNOWN_ROAD"
-
-TRAFFIC_CONDITION_LIGHT = "Light"
-TRAFFIC_CONDITION_MODERATE = "Moderate"
-TRAFFIC_CONDITION_HEAVY = "Heavy"
-TRAFFIC_CONDITION_UNKNOWN = "UNKNOWN_TRAFFIC"
-
-# Rolling Average Configuration
-ROLLING_WINDOW_SIZE = 20  # 6 seconds
-MIN_SAMPLES_FOR_CLASSIFICATION = 10 
-
-# ROC needs tuning
-SHORT_ROC_WINDOW_SIZE = 3  
-MIN_SAMPLES_FOR_ROC_CHECK = SHORT_ROC_WINDOW_SIZE 
-ROC_THROTTLE_AGGRESSIVE_THRESHOLD = 25.0  
-ROC_RPM_AGGRESSIVE_THRESHOLD = 700.0      
-ROC_SPEED_AGGRESSIVE_THRESHOLD = 8.0     
-MIN_RPM_FOR_AGGRESSIVE_TRIGGER = 1000.0   
-AGGRESSIVE_EVENT_COOLDOWN_SAMPLES = 15    
-
-HIGH_FREQUENCY_PIDS = [
-    obd.commands.RPM,
-    obd.commands.THROTTLE_POS,
-    obd.commands.SPEED,
+# Fuel Efficiency Monitoring Configuration
+# Critical PIDs for fuel consumption calculations - highest frequency
+CRITICAL_FUEL_PIDS = [
+    obd.commands.RPM,           # Engine revolutions per minute - engine stress/efficiency
+    obd.commands.SPEED,         # Vehicle speed in km/h - required for distance normalization  
+    obd.commands.THROTTLE_POS,  # Throttle position 0-100% - driver input intensity
+    obd.commands.MAF,           # Mass Air Flow g/s - primary parameter for fuel consumption
 ]
 
-LOW_FREQUENCY_PIDS_POOL = [
-    obd.commands.FUEL_PRESSURE,
-    obd.commands.ENGINE_LOAD,
-    obd.commands.COOLANT_TEMP,
-    obd.commands.INTAKE_TEMP,
-    obd.commands.TIMING_ADVANCE,
-    obd.commands.MAF,
-    obd.commands.INTAKE_PRESSURE, 
-    obd.commands.SHORT_FUEL_TRIM_1,
-    obd.commands.LONG_FUEL_TRIM_1,
-    obd.commands.SHORT_FUEL_TRIM_2, 
-    obd.commands.LONG_FUEL_TRIM_2,  
-    obd.commands.COMMANDED_EQUIV_RATIO, 
-    obd.commands.O2_B1S2, 
-    obd.commands.O2_B2S2, 
-    obd.commands.O2_S1_WR_VOLTAGE,
-    obd.commands.COMMANDED_EGR,
+# Secondary PIDs for efficiency context - medium frequency
+SECONDARY_FUEL_PIDS = [
+    obd.commands.ENGINE_LOAD,      # Engine load 0-100% - capacity utilization
+    obd.commands.INTAKE_PRESSURE,  # Manifold absolute pressure - refine load calculations
 ]
+
+# Tertiary PIDs for fuel trim analysis - low frequency
+TERTIARY_FUEL_PIDS = [
+    obd.commands.SHORT_FUEL_TRIM_1,  # STFT1 - Short Term Fuel Trim Bank 1
+    obd.commands.SHORT_FUEL_TRIM_2,  # STFT2 - Short Term Fuel Trim Bank 2  
+    obd.commands.LONG_FUEL_TRIM_1,   # LTFT1 - Long Term Fuel Trim Bank 1
+    obd.commands.LONG_FUEL_TRIM_2,   # LTFT2 - Long Term Fuel Trim Bank 2
+]
+
+# Legacy compatibility - combine all PIDs
+HIGH_FREQUENCY_PIDS = CRITICAL_FUEL_PIDS
+LOW_FREQUENCY_PIDS_POOL = SECONDARY_FUEL_PIDS + TERTIARY_FUEL_PIDS
 
 ALL_PIDS_TO_LOG = HIGH_FREQUENCY_PIDS + LOW_FREQUENCY_PIDS_POOL
 
 CSV_FILENAME_BASE = "obd_data_log" 
 # Define new structured log directories relative to the OBD_Logger/OBD directory
 LOGS_BASE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "logs") # Corrected: Up two levels to Base, then into logs
-ORIGINAL_CSV_DIR = os.path.join(LOGS_BASE_DIR, "OriginalCSV")
+FUEL_LOGS_DIR = os.path.join(LOGS_BASE_DIR, "FuelLogs")
+ANALYSED_LOGS_DIR = os.path.join(LOGS_BASE_DIR, "analysedLogsAutomated")
+# Keep legacy directories for backward compatibility if needed
+ORIGINAL_CSV_DIR = FUEL_LOGS_DIR  # Point to new fuel logs directory
 DUPLICATE_CSV_DIR = os.path.join(LOGS_BASE_DIR, "DuplicateCSV")
 
 WIFI_ADAPTER_HOST = "192.168.0.10"  
@@ -74,6 +55,7 @@ WIFI_ADAPTER_PORT = 35000
 
 WIFI_PROTOCOL = "6" 
 USE_WIFI_SETTINGS = False # using socat to mimic serial connection
+
 
 def get_pid_value(connection, pid_command):
     """Queries a PID and returns its value, or None if not available or error."""
@@ -87,47 +69,41 @@ def get_pid_value(connection, pid_command):
     except Exception as e:
         print(f"Error querying {pid_command.name}: {e}") 
         return None
-    
-def perform_logging_session():
-    connection = None
-    print("Starting OBD-II Data Logger...")
-    print("Classifications (Style, Road, Traffic) will be determined automatically.")
 
-   
-    initial_driving_style = "" 
-    initial_road_type = ""
-    initial_traffic_condition = ""
     
-    BASE_LOG_INTERVAL = .3  # for high frequency data
-    LOW_FREQUENCY_GROUP_POLL_INTERVAL = 90.0  # Interval in seconds to poll one group of LF PIDs 
-    NUM_LOW_FREQUENCY_GROUPS = 3
+def perform_logging_session(connection):
+    """Perform a single logging session with an existing OBD connection."""
+    print(f"\n🚗 Starting new fuel efficiency logging session")
+    print("Commands:")
+    print("  - Type 'next' and press Enter to finish this drive and start a new one")
+    print("  - Type 'quit' and press Enter to stop all logging")
 
-    # Prepare Low-Frequency PID groups
-    low_frequency_pid_groups = []
-    if LOW_FREQUENCY_PIDS_POOL: 
-        chunk_size = (len(LOW_FREQUENCY_PIDS_POOL) + NUM_LOW_FREQUENCY_GROUPS - 1) // NUM_LOW_FREQUENCY_GROUPS
-        for i in range(0, len(LOW_FREQUENCY_PIDS_POOL), chunk_size):
-            low_frequency_pid_groups.append(LOW_FREQUENCY_PIDS_POOL[i:i + chunk_size])
     
-    if not low_frequency_pid_groups: # Handle case with no LF PIDs
-        low_frequency_pid_groups.append([])
-        NUM_LOW_FREQUENCY_GROUPS = 1 
-
-    last_low_frequency_group_poll_time = time.monotonic() 
-    current_low_frequency_group_index = 0
+    # Optimized sampling intervals for fuel efficiency monitoring
+    CRITICAL_PID_INTERVAL = 0.65        # Critical PIDs every 0.25s (4Hz) - RPM, SPEED, THROTTLE_POS, MAF
+    SECONDARY_PID_INTERVAL = 2.0        # Secondary PIDs every 2s - ENGINE_LOAD, INTAKE_PRESSURE  
+    TERTIARY_PID_INTERVAL = 5.0        # Tertiary PIDs every 15s - Fuel trims
+    
+    # Timing trackers for different PID groups
+    last_critical_poll_time = time.monotonic() - CRITICAL_PID_INTERVAL  # Start immediately
+    last_secondary_poll_time = time.monotonic() - SECONDARY_PID_INTERVAL  # Start immediately
+    last_tertiary_poll_time = time.monotonic() - TERTIARY_PID_INTERVAL   # Start immediately
+    
+    # Legacy compatibility - use critical interval as base
+    BASE_LOG_INTERVAL = CRITICAL_PID_INTERVAL
     
     current_pid_values = {pid.name: '' for pid in ALL_PIDS_TO_LOG} 
 
-    # Create log directories
-    for dir_path in [ORIGINAL_CSV_DIR, DUPLICATE_CSV_DIR]: # Add ANALYZED_OUTPUT_DIR if used
+    # Create log directories - include the new analysed logs directory
+    for dir_path in [FUEL_LOGS_DIR, ANALYSED_LOGS_DIR, DUPLICATE_CSV_DIR]:
         try:
             os.makedirs(dir_path, exist_ok=True)
             print(f"Ensured directory exists: {dir_path}")
         except OSError as e:
             print(f"Error creating directory {dir_path}: {e}. Attempting to use current directory.")
             # Fallback logic may be needed if creation fails critically
-            if dir_path == ORIGINAL_CSV_DIR: # Critical for saving original log
-                 print("Cannot create original log directory. Exiting.")
+            if dir_path == FUEL_LOGS_DIR: # Critical for saving fuel log
+                 print("Cannot create fuel log directory. Exiting.")
                  return None 
 
     current_session_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -135,55 +111,35 @@ def perform_logging_session():
     original_csv_filepath = os.path.join(ORIGINAL_CSV_DIR, csv_file_name_only)
 
     try:
-        if USE_WIFI_SETTINGS:
-            print(f"Attempting to connect to WiFi adapter at {WIFI_ADAPTER_HOST}:{WIFI_ADAPTER_PORT} using protocol {WIFI_PROTOCOL}...")
-            connection = obd.OBD(protocol=WIFI_PROTOCOL, 
-                                 host=WIFI_ADAPTER_HOST, 
-                                 port=WIFI_ADAPTER_PORT, 
-                                 fast=False,
-                                 timeout=30) 
-        else:
-            print("Attempting to connect via socat PTY /dev/ttys011...")
-            connection = obd.OBD("/dev/ttys086", fast=True, timeout=30) # Auto-scan for USB/Bluetooth
-
-        if not connection.is_connected():
-            print("Failed to connect to OBD-II adapter.")
-            print(f"Connection status: {connection.status()}")
-            return None
-        
-        print(f"Successfully connected to OBD-II adapter: {connection.port_name()}")
-        print(f"Adapter status: {connection.status()}")
-        print(f"Supported PIDs (sample):")
-        supported_commands = connection.supported_commands
-        for i, cmd in enumerate(supported_commands):
-            print(f"  - {cmd.name}")
-        if not supported_commands:
-            print("No commands")
+        if not connection or not connection.is_connected():
+            print("❌ OBD connection not available")
+            return None, "quit"
+            
+        print(f"Using existing OBD connection: {connection.port_name()}")
 
         # Creating initial full PID sample to have fully populated rows from beginning 
         print("\nPerforming initial full PID sample...")
         initial_log_entry = {
-            'timestamp': datetime.datetime.now().isoformat(),
-            'driving_style': initial_driving_style,
-            'road_type': initial_road_type,
-            'traffic_condition': initial_traffic_condition
+            'timestamp': datetime.datetime.now().isoformat()
         }
         
-        print("Polling initial High-Frequency PIDs...")
-        for pid_command in HIGH_FREQUENCY_PIDS:
+        print("Polling initial Critical Fuel PIDs...")
+        for pid_command in CRITICAL_FUEL_PIDS:
             value = get_pid_value(connection, pid_command)
             current_pid_values[pid_command.name] = value if value is not None else ''
             initial_log_entry[pid_command.name] = current_pid_values[pid_command.name]
 
-        print("Polling initial Low-Frequency PIDs (all groups)...")
-        if low_frequency_pid_groups and low_frequency_pid_groups[0]: # Check if there are any LF PIDs
-            for group in low_frequency_pid_groups:
-                for pid_command in group:
-                    value = get_pid_value(connection, pid_command)
-                    current_pid_values[pid_command.name] = value if value is not None else ''
-                    initial_log_entry[pid_command.name] = current_pid_values[pid_command.name]
-        else:
-            print("No Low-Frequency PIDs to poll for initial sample.")
+        print("Polling initial Secondary Fuel PIDs...")
+        for pid_command in SECONDARY_FUEL_PIDS:
+            value = get_pid_value(connection, pid_command)
+            current_pid_values[pid_command.name] = value if value is not None else ''
+            initial_log_entry[pid_command.name] = current_pid_values[pid_command.name]
+            
+        print("Polling initial Tertiary Fuel PIDs...")
+        for pid_command in TERTIARY_FUEL_PIDS:
+            value = get_pid_value(connection, pid_command)
+            current_pid_values[pid_command.name] = value if value is not None else ''
+            initial_log_entry[pid_command.name] = current_pid_values[pid_command.name]
 
         for pid_obj in ALL_PIDS_TO_LOG:
             if pid_obj.name not in initial_log_entry:
@@ -198,18 +154,8 @@ def perform_logging_session():
     file_exists = os.path.isfile(original_csv_filepath)
     try:
         with open(original_csv_filepath, 'a', newline='') as csvfile:
-            # Add new columns for analyzer output, they will be empty initially from logger
-            header_names = ['timestamp', 
-                            'driving_style', 'road_type', 'traffic_condition', # Original placeholder columns
-                            'driving_style_analyzed', 'road_type_analyzed', 'traffic_condition_analyzed' # For analyzer
-                           ] + [pid.name for pid in ALL_PIDS_TO_LOG]
-            
-            # Remove duplicates if any PID name is already in the first part
-            processed_headers = []
-            for item in header_names:
-                if item not in processed_headers:
-                    processed_headers.append(item)
-            header_names = processed_headers
+            # Simplified headers for fuel efficiency logging - no driving style columns
+            header_names = ['timestamp'] + [pid.name for pid in ALL_PIDS_TO_LOG]
 
             writer = csv.DictWriter(csvfile, fieldnames=header_names)
 
@@ -218,60 +164,72 @@ def perform_logging_session():
                 print(f"Created new CSV file: {original_csv_filepath} with headers: {header_names}")
 
             if initial_log_entry: 
-                # Add placeholder columns for analyzer to the initial entry
-                initial_log_entry['driving_style_analyzed'] = ''
-                initial_log_entry['road_type_analyzed'] = ''
-                initial_log_entry['traffic_condition_analyzed'] = ''
                 writer.writerow(initial_log_entry)
                 csvfile.flush()
-                print(f"Logged initial full sample. Style: {initial_driving_style}, Road: {initial_road_type}, Traffic: {initial_traffic_condition}.")
-            
-            last_low_frequency_group_poll_time = time.monotonic()
-            current_low_frequency_group_index = 0 
-
-            print(f"\nLogging high-frequency data every {BASE_LOG_INTERVAL} second(s).")
-            print(f"Polling one group of low-frequency PIDs every {LOW_FREQUENCY_GROUP_POLL_INTERVAL} second(s).")
-            print(f"Low-frequency PIDs divided into {len(low_frequency_pid_groups)} groups.")
+                print(f"Logged initial full sample with all fuel efficiency PIDs.")
             
             log_count = 0
-            while True:
+            user_stop_requested = False
+
+            print(f"\nOptimized fuel efficiency logging started:")
+            print(f"- Critical PIDs (RPM, SPEED, THROTTLE_POS, MAF) every {CRITICAL_PID_INTERVAL}s")
+            print(f"- Secondary PIDs (ENGINE_LOAD, INTAKE_PRESSURE) every {SECONDARY_PID_INTERVAL}s") 
+            print(f"- Tertiary PIDs (Fuel Trims) every {TERTIARY_PID_INTERVAL}s")
+            
+            while not user_stop_requested:
+                # Check for non-blocking input
+                if select.select([sys.stdin], [], [], 0.0)[0]:
+                    user_command = sys.stdin.readline().strip().lower()
+                    if user_command == "next":
+                        print("\nUser typed 'next'. Finishing current drive...")
+                        user_stop_requested = True
+                        break # Exit current session loop
+                    elif user_command == "quit":
+                        print("\nUser typed 'quit'. Stopping all logging...")
+                        user_stop_requested = True
+                        return original_csv_filepath, "quit"  # Signal to quit all sessions
+                    else:
+                        # Optional: Acknowledge other input if needed, or just ignore
+                        print(f"Input detected: '{user_command}'. Type 'next' or 'quit'.", end='\r') 
+
                 loop_start_time = time.monotonic()
                 current_datetime = datetime.datetime.now()
                 timestamp_iso = current_datetime.isoformat()
                 
-                hf_reads = 0
-                for pid_command in HIGH_FREQUENCY_PIDS:
-                    value = get_pid_value(connection, pid_command)
-                    current_pid_values[pid_command.name] = value if value is not None else ''
-                    if value is not None:
-                        hf_reads += 1
+                critical_reads = 0
+                secondary_reads = 0
+                tertiary_reads = 0
                 
-                lf_reads_this_cycle = 0
-                lf_group_polled_this_cycle = "None"
-                if low_frequency_pid_groups and (time.monotonic() - last_low_frequency_group_poll_time) >= LOW_FREQUENCY_GROUP_POLL_INTERVAL:
-                    group_to_poll = low_frequency_pid_groups[current_low_frequency_group_index]
-                    lf_group_polled_this_cycle = f"Group {current_low_frequency_group_index + 1}/{len(low_frequency_pid_groups)}"
-                   
-                    for pid_command in group_to_poll:
+                # Always poll critical PIDs (highest frequency)
+                if (time.monotonic() - last_critical_poll_time) >= CRITICAL_PID_INTERVAL:
+                    for pid_command in CRITICAL_FUEL_PIDS:
                         value = get_pid_value(connection, pid_command)
                         current_pid_values[pid_command.name] = value if value is not None else ''
                         if value is not None:
-                            lf_reads_this_cycle +=1 
-                        else: 
-                            print(f"Warning: Could not read LF PID {pid_command.name}")
-                    
-                    last_low_frequency_group_poll_time = time.monotonic()
-                    current_low_frequency_group_index = (current_low_frequency_group_index + 1) % len(low_frequency_pid_groups)
+                            critical_reads += 1
+                    last_critical_poll_time = time.monotonic()
+                
+                # Poll secondary PIDs at medium frequency
+                if (time.monotonic() - last_secondary_poll_time) >= SECONDARY_PID_INTERVAL:
+                    for pid_command in SECONDARY_FUEL_PIDS:
+                        value = get_pid_value(connection, pid_command)
+                        current_pid_values[pid_command.name] = value if value is not None else ''
+                        if value is not None:
+                            secondary_reads += 1
+                    last_secondary_poll_time = time.monotonic()
+                
+                # Poll tertiary PIDs at low frequency
+                if (time.monotonic() - last_tertiary_poll_time) >= TERTIARY_PID_INTERVAL:
+                    for pid_command in TERTIARY_FUEL_PIDS:
+                        value = get_pid_value(connection, pid_command)
+                        current_pid_values[pid_command.name] = value if value is not None else ''
+                        if value is not None:
+                            tertiary_reads += 1
+                    last_tertiary_poll_time = time.monotonic()
 
 
                 final_log_entry = {
-                    'timestamp': timestamp_iso,
-                    'driving_style': initial_driving_style,
-                    'road_type': initial_road_type,
-                    'traffic_condition': initial_traffic_condition,
-                    'driving_style_analyzed': '',
-                    'road_type_analyzed': '',
-                    'traffic_condition_analyzed': ''
+                    'timestamp': timestamp_iso
                 }
                 # Add all PID values for this cycle from current_pid_values
                 for pid_obj in ALL_PIDS_TO_LOG:
@@ -282,10 +240,12 @@ def perform_logging_session():
 
                 log_count += 1
                 if log_count % 10 == 0: 
-                    status_msg = f"Logged entry {log_count} - HF PIDs Read: {hf_reads}/{len(HIGH_FREQUENCY_PIDS)}"
-                    if lf_reads_this_cycle > 0 or lf_group_polled_this_cycle != "None":
-                         status_msg += f" - LF PIDs ({lf_group_polled_this_cycle}) Read: {lf_reads_this_cycle}/unknown_total_for_group_easily"
-                    print(status_msg)
+                    status_msg = f"Entry {log_count} - Critical: {critical_reads}/{len(CRITICAL_FUEL_PIDS)}"
+                    if secondary_reads > 0:
+                        status_msg += f" Secondary: {secondary_reads}/{len(SECONDARY_FUEL_PIDS)}"
+                    if tertiary_reads > 0:
+                        status_msg += f" Tertiary: {tertiary_reads}/{len(TERTIARY_FUEL_PIDS)}"
+                    print(status_msg + " " * 20, end='\r') # Padding to clear previous line
                 
                 elapsed_time_in_loop = time.monotonic() - loop_start_time
                 sleep_duration = max(0, BASE_LOG_INTERVAL - elapsed_time_in_loop)
@@ -296,12 +256,11 @@ def perform_logging_session():
     except Exception as e:
         print(f"An error occurred during logging: {e}")
     finally:
-        if connection and connection.is_connected():
-            print("Closing OBD-II connection.")
-            connection.close()
-        print(f"Data logging stopped. Original CSV file '{original_csv_filepath}' saved.")
+        # Clear the status line before printing final messages
+        print(" " * 100, end='\r') 
+        print(f"Drive completed - data saved to: {os.path.basename(original_csv_filepath)}")
 
-    return original_csv_filepath
+    return original_csv_filepath, "next"  # Default to "next" for continuing
 
 def duplicate_csv(original_filepath):
     if not original_filepath or not os.path.exists(original_filepath):
@@ -327,48 +286,146 @@ def duplicate_csv(original_filepath):
         print(f"Error duplicating CSV {original_filepath} to {duplicate_filepath}: {e}")
         return None
 
-def run_analyzer_on_csv(csv_to_analyze_path):
-    if not csv_to_analyze_path or not os.path.exists(csv_to_analyze_path):
-        print(f"Error: Analyzer input CSV not found: {csv_to_analyze_path}")
-        return
+def run_analyzer_on_csv(original_csv_path):
+    """Run analyzer on the original fuel log and save to analysedLogsAutomated directory."""
+    if not original_csv_path or not os.path.exists(original_csv_path):
+        print(f"Error: Original CSV not found for analysis: {original_csv_path}")
+        return None
 
     # Analyzer script is in the same directory as this logger script
     analyzer_script_path = os.path.join(os.path.dirname(__file__), "obd_analyzer.py") 
     
     if not os.path.exists(analyzer_script_path):
         print(f"CRITICAL Error: Analyzer script not found at {analyzer_script_path}")
-        return
+        return None
 
-    analyzed_file_basename = os.path.basename(csv_to_analyze_path).replace("_to_analyze.csv", "_final_analyzed.csv")
-    final_output_path = os.path.join(DUPLICATE_CSV_DIR, analyzed_file_basename)
+    # Create analyzed filename with _analyzed suffix
+    original_filename = os.path.basename(original_csv_path)
+    base, ext = os.path.splitext(original_filename)
+    analyzed_filename = f"{base}_analyzed{ext}"
+    analyzed_output_path = os.path.join(ANALYSED_LOGS_DIR, analyzed_filename)
 
     command = [
-        "python",
+        "python3",
         analyzer_script_path,
-        csv_to_analyze_path, 
+        original_csv_path,
         "--output_csv",
-        final_output_path   
+        analyzed_output_path   
     ]
     
-    print(f"Running analyzer: {' '.join(command)}")
+    print(f"🔍 Running analyzer: {' '.join(command)}")
     try:
         process = subprocess.run(command, check=True, capture_output=True, text=True, cwd=os.path.dirname(__file__))
         print("Analyzer Output:\n", process.stdout)
-        if process.stderr: print("Analyzer Errors:\n", process.stderr)
-        print(f"Analyzer finished. Output saved to {final_output_path}")
+        if process.stderr: 
+            print("Analyzer Errors:\n", process.stderr)
+        print(f"✅ Analysis complete. Results saved to: {os.path.basename(analyzed_output_path)}")
+        return analyzed_output_path
     except subprocess.CalledProcessError as e:
-        print(f"Error running analyzer: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        print(f"❌ Error running analyzer: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        return None
     except FileNotFoundError:
-        print(f"Error: 'python' or analyzer script not found ({analyzer_script_path}).")
+        print(f"❌ Error: 'python3' or analyzer script not found ({analyzer_script_path}).")
+        return None
+
+def initialize_obd_connection():
+    """Initialize OBD connection once for multiple sessions."""
+    connection = None
+    
+    try:
+        if USE_WIFI_SETTINGS:
+            print(f"Attempting to connect to WiFi adapter at {WIFI_ADAPTER_HOST}:{WIFI_ADAPTER_PORT} using protocol {WIFI_PROTOCOL}...")
+            connection = obd.OBD(protocol=WIFI_PROTOCOL, 
+                                 host=WIFI_ADAPTER_HOST, 
+                                 port=WIFI_ADAPTER_PORT, 
+                                 fast=False,
+                                 timeout=30) 
+        else:
+            print("Attempting to connect via socat PTY /dev/ttys006...")
+            connection = obd.OBD("/dev/ttys006", fast=True, timeout=30)
+
+        if not connection.is_connected():
+            print("Failed to connect to OBD-II adapter.")
+            print(f"Connection status: {connection.status()}")
+            return None
+        
+        print(f"Successfully connected to OBD-II adapter: {connection.port_name()}")
+        print(f"Adapter status: {connection.status()}")
+        return connection
+        
+    except Exception as e:
+        print(f"An error occurred during OBD connection: {e}")
+        return None
+
+def main():
+    """Main function to handle multiple logging sessions."""
+    print("🚗 Fuel Efficiency OBD Logger - Multi-Session Mode")
+    print("=" * 50)
+    
+    # Initialize OBD connection once
+    connection = initialize_obd_connection()
+    if not connection:
+        print("❌ Could not establish OBD connection. Exiting.")
+        return
+    
+    session_count = 0
+    logged_files = []
+    
+    try:
+        while True:
+            session_count += 1
+            print(f"\n📊 Session {session_count} ready to start")
+            
+            # Perform logging session
+            result = perform_logging_session(connection)
+            
+            if isinstance(result, tuple):
+                csv_file, command = result
+            else:
+                csv_file, command = result, "quit"  # Fallback
+            
+            # Handle the result
+            if csv_file and os.path.exists(csv_file):
+                logged_files.append(csv_file)
+                print(f"✅ Drive {session_count} saved: {os.path.basename(csv_file)}")
+                
+                # Automatically run analyzer on the completed drive
+                print(f"\n🔍 Starting automated analysis for drive {session_count}...")
+                analyzed_file = run_analyzer_on_csv(csv_file)
+                if analyzed_file:
+                    print(f"📊 Analysis complete for drive {session_count}")
+                else:
+                    print(f"⚠️ Analysis failed for drive {session_count}, but drive data is still saved")
+            
+            # Check if user wants to quit
+            if command == "quit":
+                print("\n🏁 Stopping all logging as requested")
+                break
+            
+            # Otherwise continue to next session
+            print(f"\n🔄 Ready for next drive (Session {session_count + 1})")
+    
+    except KeyboardInterrupt:
+        print("\n⏹️  Logging stopped by user (Ctrl+C)")
+    
+    finally:
+        # Close OBD connection
+        if connection and connection.is_connected():
+            print("Closing OBD-II connection...")
+            connection.close()
+        
+        # Print summary
+        print("\n" + "=" * 50)
+        print(f"📈 LOGGING SUMMARY")
+        print(f"Total drives logged: {len(logged_files)}")
+        if logged_files:
+            print("Raw fuel logs saved to: logs/FuelLogs/")
+            print("Analyzed logs saved to: logs/analysedLogsAutomated/")
+            print("\nFiles created:")
+            for file in logged_files:
+                print(f"  - {os.path.basename(file)}")
+            print(f"\n📤 Run bulk upload when WiFi is available to send data to MongoDB")
+        print("=" * 50)
 
 if __name__ == "__main__":
-    original_log_file = perform_logging_session() 
-
-    if original_log_file and os.path.exists(original_log_file):
-        duplicated_log_file = duplicate_csv(original_log_file)
-        
-        if duplicated_log_file:
-            run_analyzer_on_csv(duplicated_log_file)
-            print(f"Process complete. Original log: {original_log_file}, Analyzed log copy: {duplicated_log_file}")
-    else:
-        print("OBD logging did not produce a valid CSV file. Skipping analysis.") 
+    main() 
