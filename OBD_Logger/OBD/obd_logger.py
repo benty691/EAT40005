@@ -145,6 +145,9 @@ def perform_logging_session(connection):
             if pid_obj.name not in initial_log_entry:
                 initial_log_entry[pid_obj.name] = '' # Default to empty if somehow missed
 
+        # Empty driving style column
+        initial_log_entry['driving_style'] = ''
+
     except Exception as e:
         print(f"An error occurred during connection or initial PID sample: {e}")
         if connection and connection.is_connected():
@@ -154,8 +157,8 @@ def perform_logging_session(connection):
     file_exists = os.path.isfile(original_csv_filepath)
     try:
         with open(original_csv_filepath, 'a', newline='') as csvfile:
-            # Simplified headers for fuel efficiency logging - no driving style columns
-            header_names = ['timestamp'] + [pid.name for pid in ALL_PIDS_TO_LOG]
+            # Headers for fuel efficiency logging plus placeholder for driving style
+            header_names = ['timestamp'] + [pid.name for pid in ALL_PIDS_TO_LOG] + ['driving_style']
 
             writer = csv.DictWriter(csvfile, fieldnames=header_names)
 
@@ -234,6 +237,8 @@ def perform_logging_session(connection):
                 # Add all PID values for this cycle from current_pid_values
                 for pid_obj in ALL_PIDS_TO_LOG:
                      final_log_entry[pid_obj.name] = current_pid_values.get(pid_obj.name, '')
+
+                final_log_entry['driving_style'] = ''
 
                 writer.writerow(final_log_entry)
                 csvfile.flush()  
