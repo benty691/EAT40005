@@ -24,10 +24,10 @@ Why do we need Unsupervised Learning (UL) when already have fairly good labellin
 ### 🏆 Outcome
 We trained 2 XGBoost models with great accuracies:
 
-![UL XGBoost](model/ul/res_ul.png)
+![UL XGBoost](model/ul/res_ul.png)  
 *High accuracy from UL model*
 
-![GT XGBoost](model/gt/res_gt.png)
+![GT XGBoost](model/gt/res_gt.png)  
 *High accuracy from GT model*
 
 Note that these 2 models on inference must be fused with 3 variants:
@@ -36,7 +36,7 @@ Note that these 2 models on inference must be fused with 3 variants:
 - classifier
 
 Model directory:
-[UL](https://github.com/benty691/EAT40005/tree/main/model/ul)|[GT](https://github.com/benty691/EAT40005/tree/main/model/gt)
+[UL](https://github.com/benty691/EAT40005/tree/main/model/ul)   |   [GT](https://github.com/benty691/EAT40005/tree/main/model/gt)
 
 ---
 
