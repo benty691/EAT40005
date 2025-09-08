@@ -20,11 +20,15 @@ from sklearn.impute import KNNImputer
 import os, datetime, json, logging, re
 from datetime import timedelta
 import pathlib
-# Driver
+
+# Drive
 from drive_saver import DriveSaver, get_drive_service, upload_to_folder
 
 # Database
 from mongo_saver import MongoSaver, save_csv_to_mongo, save_dataframe_to_mongo, MONGODB_AVAILABLE
+
+# UL Model
+from ul_label import ULLabeler
 
 # ───────────── Logging Setup ─────────────
 logger = logging.getLogger("obd-logger")
@@ -48,6 +52,9 @@ RAW_CSV = os.path.join(BASE_DIR, "raw_logs.csv")
 os.makedirs(BASE_DIR, exist_ok=True)
 os.makedirs(CLEANED_DIR, exist_ok=True)
 os.makedirs(PLOT_DIR, exist_ok=True)
+
+DRIVE_STYLE = []  # latest UL predictions (string labels) — overwritten each run
+
 # Init temp empty file
 if not os.path.exists(RAW_CSV):
     pd.DataFrame(columns=["timestamp", "driving_style"]).to_csv(RAW_CSV, index=False)
@@ -399,30 +406,52 @@ def _process_and_save(df, norm_ts):
     out_path = os.path.join(CLEANED_DIR, f"cleaned_{norm_ts}.csv")
     df.to_csv(out_path, index=False)
     logger.info(f"✅ Cleaned saved: {out_path}")
-    # 9) Plots
+    # 9) UL drivestyle predictions
+    df_for_persist = df
+    labeled_path = None
+    try:
+        ul = ULLabeler.get()
+        preds = ul.predict_df(df)
+        # update global DRIVE_STYLE (overwrite if already exists)
+        global DRIVE_STYLE
+        DRIVE_STYLE = [str(p) for p in preds]
+        # write labeled CSV (driving_style column)
+        df_labeled = df.copy()
+        df_labeled["driving_style"] = DRIVE_STYLE
+        labeled_path = os.path.join(CLEANED_DIR, f"cleaned_{norm_ts}_labeled.csv")
+        df_labeled.to_csv(labeled_path, index=False)
+        df_for_persist = df_labeled
+        # Update the global DRIVE_STYLE list
+        logger.info(f"✅ UL labels generated ({len(DRIVE_STYLE)}) → {labeled_path}")
+    except Exception as e:
+        logger.error(f"❌ UL labeling failed: {e}")
+    # 10) Plots
     _plot_corr(df, norm_ts)
     _plot_trend(df, norm_ts)
-    # 10) Update event
+    # 11) Update event
     try:
         PIPELINE_EVENTS[norm_ts]["status"] = "done"
     except Exception:
         pass
-    # 11) Upload to Drive
+    # 12) Upload to Drive
     try:
         if drive_saver.is_service_available():
-            drive_saver.upload_csv_to_drive(out_path)
-            logger.info("✅ Uploaded to Google Drive")
+            if labeled_path and os.path.exists(labeled_path):
+                drive_saver.upload_csv_to_drive(labeled_path)
+                logger.info("✅ Uploaded labeled to Google Drive")
+            else:
+                drive_saver.upload_csv_to_drive(out_path)
+                logger.info("✅ Uploaded default to Google Drive")
         else:
             logger.warning("⚠️  Google Drive service not available")
     except Exception as e:
         logger.error(f"❌ Drive upload error: {e}")
-    
-    # 12) Save to MongoDB
+    # 13) Save to MongoDB
     try:
         if mongo_saver.is_connected():
             # Save the cleaned DataFrame directly to MongoDB
             session_id = f"session_{norm_ts}"
-            if mongo_saver.save_dataframe_to_mongo(df, session_id):
+            if mongo_saver.save_dataframe_to_mongo(df_for_persist, session_id):
                 logger.info("✅ Saved to MongoDB")
             else:
                 logger.warning("⚠️  MongoDB save failed")
