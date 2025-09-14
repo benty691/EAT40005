@@ -7,10 +7,10 @@ jinja2
 # Data
 pandas
 numpy
-scikit-learn==1.6.1
+scikit-learn
 
 # ML Models
-xgboost==1.7.6
+xgboost
 joblib
 
 # Drive

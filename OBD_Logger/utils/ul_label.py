@@ -28,6 +28,8 @@ def _load_any(path):
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
         warnings.filterwarnings("ignore", category=UserWarning, module="xgboost")
+        warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
+        warnings.filterwarnings("ignore", category=FutureWarning, module="xgboost")
         try:
             model = joblib.load(path)
         except Exception:
@@ -38,10 +40,20 @@ def _load_any(path):
     if hasattr(model, 'get_booster'):  # This is an XGBoost model
         # Remove deprecated use_label_encoder attribute that causes issues in newer XGBoost versions
         if hasattr(model, '__dict__'):
-            model.__dict__.pop('use_label_encoder', None)
-            # Also remove other deprecated attributes
-            model.__dict__.pop('_le', None)
-            model.__dict__.pop('_label_encoder', None)
+            # Remove all deprecated attributes that cause issues
+            deprecated_attrs = [
+                'use_label_encoder', '_le', '_label_encoder', 
+                'use_label_encoder_', '_le_', '_label_encoder_'
+            ]
+            for attr in deprecated_attrs:
+                model.__dict__.pop(attr, None)
+            
+            # Set use_label_encoder to False for newer XGBoost versions
+            if hasattr(model, 'set_params'):
+                try:
+                    model.set_params(use_label_encoder=False)
+                except Exception:
+                    pass
     
     return model
 
@@ -73,7 +85,10 @@ class ULLabeler:
             # Check if this is an XGBoost classifier
             if hasattr(self.clf, 'get_booster'):
                 # Remove deprecated attributes that cause issues in newer XGBoost versions
-                deprecated_attrs = ['use_label_encoder', '_le', '_label_encoder']
+                deprecated_attrs = [
+                    'use_label_encoder', '_le', '_label_encoder',
+                    'use_label_encoder_', '_le_', '_label_encoder_'
+                ]
                 for attr in deprecated_attrs:
                     if hasattr(self.clf, attr):
                         try:
@@ -81,11 +96,22 @@ class ULLabeler:
                         except (AttributeError, TypeError):
                             pass
                 
+                # Set use_label_encoder to False for newer XGBoost versions
+                if hasattr(self.clf, 'set_params'):
+                    try:
+                        self.clf.set_params(use_label_encoder=False)
+                    except Exception:
+                        pass
+                
                 # Ensure the model is properly configured for prediction
                 if hasattr(self.clf, 'n_classes_') and self.clf.n_classes_ is None:
                     # Try to infer number of classes from the label encoder
                     if hasattr(self.le, 'classes_'):
                         self.clf.n_classes_ = len(self.le.classes_)
+                
+                # For newer XGBoost versions, ensure the model is properly initialized
+                if hasattr(self.clf, '_le') and self.clf._le is None:
+                    self.clf._le = None
                 
                 log.info("XGBoost compatibility fixes applied successfully")
         except Exception as e:
@@ -122,15 +148,35 @@ class ULLabeler:
         Xs = self._prepare(df)
         try:
             yhat = self.clf.predict(Xs)
-        except AttributeError as e:
-            if 'use_label_encoder' in str(e):
+        except (AttributeError, TypeError) as e:
+            if 'use_label_encoder' in str(e) or 'label_encoder' in str(e):
                 # Last resort: try to fix the model and retry
                 log.warning("XGBoost compatibility issue detected, attempting fix...")
-                if hasattr(self.clf, '__dict__'):
-                    self.clf.__dict__.pop('use_label_encoder', None)
-                    self.clf.__dict__.pop('_le', None)
-                    self.clf.__dict__.pop('_label_encoder', None)
-                yhat = self.clf.predict(Xs)
+                try:
+                    # Remove all problematic attributes
+                    deprecated_attrs = [
+                        'use_label_encoder', '_le', '_label_encoder',
+                        'use_label_encoder_', '_le_', '_label_encoder_'
+                    ]
+                    for attr in deprecated_attrs:
+                        if hasattr(self.clf, attr):
+                            try:
+                                delattr(self.clf, attr)
+                            except (AttributeError, TypeError):
+                                pass
+                    
+                    # Set use_label_encoder to False
+                    if hasattr(self.clf, 'set_params'):
+                        try:
+                            self.clf.set_params(use_label_encoder=False)
+                        except Exception:
+                            pass
+                    
+                    # Retry prediction
+                    yhat = self.clf.predict(Xs)
+                except Exception as retry_e:
+                    log.error(f"Failed to fix XGBoost compatibility: {retry_e}")
+                    raise e
             else:
                 raise e
         
