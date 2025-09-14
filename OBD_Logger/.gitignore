@@ -1,3 +1,4 @@
 .env
 token.json
 service.json
+firebase.json

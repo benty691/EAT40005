@@ -22,13 +22,14 @@ from datetime import timedelta
 import pathlib
 
 # Drive
-from drive_saver import DriveSaver, get_drive_service, upload_to_folder
+from data.drive_saver import DriveSaver, get_drive_service, upload_to_folder
 
 # Database
-from mongo_saver import MongoSaver, save_csv_to_mongo, save_dataframe_to_mongo, MONGODB_AVAILABLE
+from data.mongo_saver import MongoSaver, save_csv_to_mongo, save_dataframe_to_mongo, MONGODB_AVAILABLE
+from data.firebase_saver import FirebaseSaver
 
 # UL Model
-from ul_label import ULLabeler
+from utils.ul_label import ULLabeler
 
 # ───────────── Logging Setup ─────────────
 logger = logging.getLogger("obd-logger")
@@ -66,7 +67,7 @@ PIPELINE_EVENTS = {}
 # Initialize services
 drive_saver = DriveSaver()
 mongo_saver = MongoSaver()
-
+firebase_saver = FirebaseSaver()
 
 # ───────────── Render Dashboard UI ──────────────
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -459,6 +460,26 @@ def _process_and_save(df, norm_ts):
             logger.warning("⚠️  MongoDB not connected")
     except Exception as e:
         logger.error(f"❌ MongoDB save error: {e}")
+    # 14) Save to Firebase Storage
+    try:
+        if firebase_saver.is_available():
+            # Always save as cleaned.csv or cleaned_labeled.csv depends on the labeled_path
+            if labeled_path and os.path.exists(labeled_path):
+                dest_name = "cleaned_labeled.csv"
+                target_path = labeled_path
+            else:
+                dest_name = "cleaned.csv"
+                target_path = out_path
+            # e.g. gs://skyledge-36b56.firebasestorage.app/skyledge/processed/2025-09-14/cleaned_labeled.cs
+            uploaded = firebase_saver.upload_file(target_path, dest_name=dest_name, subdir=norm_ts)
+            if uploaded:
+                logger.info("✅ Saved to Firebase Storage")
+            else:
+                logger.warning("⚠️ Firebase Storage upload returned False")
+        else:
+            logger.warning("⚠️ Firebase Storage not available")
+    except Exception as e:
+        logger.error(f"❌ Firebase Storage save error: {e}")
 
 
 

@@ -154,7 +154,7 @@ curl -X POST https://binkhoale1812-obd-logger.hf.space/upload-csv/ \
 curl -X POST https://binkhoale1812-obd-logger.hf.space/upload-csv/ \
      -H "accept: application/json" \
      -H "Content-Type: multipart/form-data" \
-     -F "file=@logs/Week 13/obd_data_log_20250603_133725.csv"
+     -F "file=@logs/driver_behavior_s2w5/style1.csv"
 ```
 
 ## Merging all cleaned logs:

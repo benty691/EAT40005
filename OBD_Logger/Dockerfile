@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir huggingface_hub==0.25.2 xgboost==2.0.3 joblib
 
 # ── Pre-mount GDrive (no-op if creds not found) ──
-COPY --chown=user mount_drive.py .
+COPY --chown=user utils/mount_drive.py .
 RUN python mount_drive.py || true
 
 # ── Copy application source ──
@@ -35,7 +35,7 @@ ENV MODEL_DIR=$HOME/app/models/ul
 ENV HF_MODEL_REPO=BinKhoaLe1812/Driver_Behavior_OBD
 
 # ── Download UL model files on build ──
-RUN python download.py
+RUN python utils/download.py
 
 # ── Default port ──
 EXPOSE 7860

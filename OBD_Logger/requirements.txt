@@ -19,6 +19,7 @@ google-api-python-client
 
 # Database
 pymongo
+google-cloud-storage
 
 # Visualize
 matplotlib
