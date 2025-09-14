@@ -29,10 +29,18 @@ def _load_any(path):
         warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
         warnings.filterwarnings("ignore", category=UserWarning, module="xgboost")
         try:
-            return joblib.load(path)
+            model = joblib.load(path)
         except Exception:
             with open(path, "rb") as f:
-                return pickle.load(f)
+                model = pickle.load(f)
+    
+    # Handle XGBoost compatibility issues
+    if hasattr(model, 'use_label_encoder'):
+        # Remove deprecated use_label_encoder attribute for newer XGBoost versions
+        if hasattr(model, '__dict__'):
+            model.__dict__.pop('use_label_encoder', None)
+    
+    return model
 
 class ULLabeler:
     _instance = None
@@ -43,6 +51,9 @@ class ULLabeler:
         self.le   = _load_any(LE_PATH)
         self.scal = _load_any(SC_PATH)
         self.clf  = _load_any(XGB_PATH)
+        
+        # Additional XGBoost compatibility fixes
+        self._fix_xgb_compatibility()
 
         # Try to discover expected feature names from scaler or model
         self.expected = None
@@ -52,6 +63,30 @@ class ULLabeler:
             self.expected = list(self.clf.feature_names_in_)
 
         log.info(f"ULLabeler ready | expected_features={len(self.expected) if self.expected else 'unknown'}")
+
+    def _fix_xgb_compatibility(self):
+        """Fix XGBoost compatibility issues with older trained models."""
+        try:
+            # Check if this is an XGBoost classifier
+            if hasattr(self.clf, 'get_booster'):
+                # Remove deprecated attributes that cause issues in newer XGBoost versions
+                deprecated_attrs = ['use_label_encoder', '_le', '_label_encoder']
+                for attr in deprecated_attrs:
+                    if hasattr(self.clf, attr):
+                        try:
+                            delattr(self.clf, attr)
+                        except (AttributeError, TypeError):
+                            pass
+                
+                # Ensure the model is properly configured for prediction
+                if hasattr(self.clf, 'n_classes_') and self.clf.n_classes_ is None:
+                    # Try to infer number of classes from the label encoder
+                    if hasattr(self.le, 'classes_'):
+                        self.clf.n_classes_ = len(self.le.classes_)
+                
+                log.info("XGBoost compatibility fixes applied successfully")
+        except Exception as e:
+            log.warning(f"XGBoost compatibility fix failed: {e}")
 
     @classmethod
     def get(cls):
@@ -82,7 +117,17 @@ class ULLabeler:
 
     def predict_df(self, df: pd.DataFrame) -> np.ndarray:
         Xs = self._prepare(df)
-        yhat = self.clf.predict(Xs)
+        try:
+            yhat = self.clf.predict(Xs)
+        except AttributeError as e:
+            if 'use_label_encoder' in str(e):
+                # Last resort: try to fix the model and retry
+                log.warning("XGBoost compatibility issue detected, attempting fix...")
+                self._fix_xgb_compatibility()
+                yhat = self.clf.predict(Xs)
+            else:
+                raise e
+        
         try:
             return self.le.inverse_transform(yhat)
         except Exception:
