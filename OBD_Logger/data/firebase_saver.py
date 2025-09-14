@@ -1,9 +1,11 @@
 # firebase_saver.py
 import os
 import io
+import re
 import json
 import logging
-from typing import Optional
+from datetime import datetime
+from typing import Optional, Tuple, List
 
 import pandas as pd
 
@@ -14,6 +16,14 @@ if not logger.handlers:
     _h.setFormatter(logging.Formatter("[%(levelname)s] %(asctime)s - %(message)s"))
     logger.addHandler(_h)
 
+# ---------- Constants (fixed as requested) ----------
+FIXED_BUCKET = "skyledge-36b56.firebasestorage.app"
+FIXED_PREFIX = "skyledge/processed"  # no trailing slash
+
+# Pattern: NNN_YYYY-MM-DD_processed.csv
+FILENAME_RE = re.compile(r"^(?P<num>\d{3})_(?P<date>\d{4}-\d{2}-\d{2})_processed\.csv$")
+
+
 def _parse_gs_uri(uri: Optional[str]):
     if not uri or not uri.startswith("gs://"):
         return None, None
@@ -23,13 +33,18 @@ def _parse_gs_uri(uri: Optional[str]):
     prefix = parts[1] if len(parts) > 1 else ""
     return bucket, prefix
 
+
 def _maybe_default_firebase_bucket(name: Optional[str]) -> Optional[str]:
     # If user passed a project ID (no dot), convert to <project>.appspot.com
     if name and "." not in name:
         return f"{name}.appspot.com"
     return name
 
+
+# -------------------- Low-level clients --------------------
+
 class _AdminClient:
+    """Firebase Admin SDK storage client."""
     def __init__(self, bucket: str):
         import firebase_admin
         from firebase_admin import credentials, storage as fb_storage
@@ -41,16 +56,15 @@ class _AdminClient:
         client_email = info.get("client_email")
         cred = credentials.Certificate(info)
 
-        # If app already initialized, reuse it
         if not firebase_admin._apps:
             firebase_admin.initialize_app(cred, {"storageBucket": bucket})
-        else:
-            # if already initialized without a bucket, set default bucket here
-            pass
 
+        # fb_storage.bucket returns a google.cloud.storage.bucket.Bucket
         self.bucket = fb_storage.bucket(bucket)
+        self._bucket_name = bucket
         logger.info(f"✅ Firebase Admin initialized | bucket={bucket} as {client_email}")
 
+    # Uploads
     def upload_from_filename(self, local_path: str, dest_path: str, content_type: str):
         blob = self.bucket.blob(dest_path)
         blob.cache_control = "no-store"
@@ -61,7 +75,20 @@ class _AdminClient:
         blob.cache_control = "no-store"
         blob.upload_from_string(data, content_type=content_type)
 
+    # Listing (needs storage.objects.list permission)
+    def list_names(self, prefix: str) -> List[str]:
+        # Bucket.list_blobs works via the underlying GCS client
+        blobs = self.bucket.list_blobs(prefix=prefix)
+        return [b.name for b in blobs]
+
+    # Existence check (for collision-safe retry)
+    def blob_exists(self, path: str) -> bool:
+        blob = self.bucket.blob(path)
+        return blob.exists()
+
+
 class _GCSClient:
+    """google-cloud-storage client."""
     def __init__(self, bucket: str):
         from google.cloud import storage
         from google.oauth2 import service_account
@@ -73,8 +100,10 @@ class _GCSClient:
         client_email = info.get("client_email")
         creds = service_account.Credentials.from_service_account_info(info)
         project_id = info.get("project_id")
+
         self.client = storage.Client(credentials=creds, project=project_id)
         self.bucket = self.client.bucket(bucket)
+        self._bucket_name = bucket
         logger.info(f"✅ GCS client initialized | bucket={bucket} as {client_email}")
 
     def upload_from_filename(self, local_path: str, dest_path: str, content_type: str):
@@ -87,115 +116,200 @@ class _GCSClient:
         blob.cache_control = "no-store"
         blob.upload_from_string(data, content_type=content_type)
 
+    def list_names(self, prefix: str) -> List[str]:
+        blobs = self.client.list_blobs(self._bucket_name, prefix=prefix)
+        return [b.name for b in blobs]
+
+    def blob_exists(self, path: str) -> bool:
+        blob = self.bucket.blob(path)
+        return blob.exists(self.client)
+
+
+# -------------------- Saver (high level) --------------------
+
 class FirebaseSaver:
     """
-    Priority:
-      1) Firebase Admin SDK via FIREBASE_ADMIN_JSON (recommended on Blaze)
-      2) google-cloud-storage via FIREBASE_SERVICE_ACCOUNT_JSON (fallback)
-
-    Config (any of):
-      - FIREBASE_GS_URI=gs://<bucket>/<prefix>
-      - FIREBASE_BUCKET and FIREBASE_PREFIX
+    Fixed target:
+      Bucket: skyledge-36b56.firebasestorage.app
+      Prefix: skyledge/processed
+    Filename convention: NNN_YYYY-MM-DD_processed.csv (NNN is 001-based, zero-padded).
+    Auto-increments by listing current objects and picking max+1.
     """
-    def __init__(self, gs_uri: Optional[str] = None, bucket_name: Optional[str] = None, prefix: Optional[str] = None):
-        env_gs = gs_uri or os.getenv("FIREBASE_GS_URI")
-        if env_gs:
-            b, p = _parse_gs_uri(env_gs)
-            if b:
-                bucket_name = b
-                if prefix is None:
-                    prefix = p
 
-        bucket_name = bucket_name or os.getenv("FIREBASE_BUCKET")
-        prefix = prefix if prefix is not None else os.getenv("FIREBASE_PREFIX", "skyledge/processed")
+    def __init__(self):
+        # Force fixed location regardless of env (as requested)
+        bucket_name = FIXED_BUCKET
+        self.prefix = FIXED_PREFIX
 
-        # Normalize bucket (auto map project-id to <project-id>.appspot.com)
-        bucket_name = _maybe_default_firebase_bucket(bucket_name)
-
-        if not bucket_name:
-            # As a last resort, try to infer from Admin JSON project_id
-            raw_admin = os.getenv("FIREBASE_ADMIN_JSON")
-            if raw_admin:
-                try:
-                    pj = json.loads(raw_admin).get("project_id")
-                    bucket_name = f"{pj}.appspot.com" if pj else None
-                except Exception:
-                    pass
-
-        if not bucket_name:
-            raise RuntimeError("No Firebase bucket resolved. Set FIREBASE_GS_URI or FIREBASE_BUCKET.")
-
-        self.bucket_name = bucket_name
-        self.prefix = (prefix or "").strip("/") or None
-
-        # Choose client
+        # Try Admin SDK first; fallback to GCS client
         self.client = None
         self.mode = None
-        # Try Admin SDK first
         try:
             if os.getenv("FIREBASE_ADMIN_JSON"):
-                self.client = _AdminClient(self.bucket_name)
+                self.client = _AdminClient(bucket_name)
                 self.mode = "admin"
         except Exception as e:
             logger.warning(f"⚠️ Admin SDK init failed: {e}")
 
-        # Fallback to GCS
         if self.client is None:
             try:
-                self.client = _GCSClient(self.bucket_name)
+                self.client = _GCSClient(bucket_name)
                 self.mode = "gcs"
             except Exception as e:
                 logger.error(f"❌ GCS client init failed: {e}")
                 raise
 
-        logger.info(f"📦 FirebaseSaver ready | mode={self.mode} bucket={self.bucket_name} prefix={self.prefix or '(root)'}")
-
-    def _dest_path(self, filename: str, subdir: Optional[str] = None) -> str:
-        parts = []
-        if self.prefix:
-            parts.append(self.prefix)
-        if subdir:
-            parts.append(subdir.strip("/"))
-        parts.append(os.path.basename(filename))
-        return "/".join(parts)
+        logger.info(f"📦 FirebaseSaver ready | mode={self.mode} bucket={bucket_name} prefix={self.prefix}")
 
     def is_available(self) -> bool:
         return self.client is not None
 
-    def upload_file(self, local_path: str, dest_name: Optional[str] = None, subdir: Optional[str] = None, content_type: str = "text/csv") -> bool:
+    # ---------- Incremental naming helpers ----------
+
+    def _list_existing_filenames(self) -> List[str]:
+        """List object names under the fixed prefix, return just basenames under that folder."""
+        names = self.client.list_names(prefix=self.prefix + "/")
+        # keep only items immediately under prefix (not subfolders) & matching our filename pattern
+        base_names = []
+        for full in names:
+            # full looks like 'skyledge/processed/NNN_YYYY-MM-DD_processed.csv'
+            if not full.startswith(self.prefix + "/"):
+                continue
+            base = full[len(self.prefix) + 1:]  # strip 'prefix/'
+            if "/" in base:
+                # skip nested items (none expected)
+                continue
+            if FILENAME_RE.match(base):
+                base_names.append(base)
+        return base_names
+
+    def _max_existing_id(self) -> int:
+        """Return max NNN found under prefix, or 0 if none."""
+        try:
+            base_names = self._list_existing_filenames()
+        except Exception as e:
+            logger.warning(f"⚠️ Unable to list existing objects; defaulting max_id=0: {e}")
+            return 0
+
+        max_id = 0
+        for name in base_names:
+            m = FILENAME_RE.match(name)
+            if not m:
+                continue
+            try:
+                num = int(m.group("num"))
+                if num > max_id:
+                    max_id = num
+            except ValueError:
+                continue
+        return max_id
+
+    @staticmethod
+    def _format_id(n: int) -> str:
+        return f"{n:03d}"
+
+    @staticmethod
+    def _today_au() -> str:
+        # Use Australia/Melbourne local date; if zoneinfo unavailable, fall back to UTC date.
+        try:
+            from zoneinfo import ZoneInfo
+            dt = datetime.now(ZoneInfo("Australia/Melbourne"))
+        except Exception:
+            dt = datetime.utcnow()
+        return dt.strftime("%Y-%m-%d")
+
+    def _build_filename(self, n_int: int, date_str: Optional[str] = None) -> str:
+        date_val = (date_str or self._today_au())
+        return f"{self._format_id(n_int)}_{date_val}_processed.csv"
+
+    def _dest_path(self, filename: str) -> str:
+        return f"{self.prefix}/{filename}"
+
+    def _next_available_name(self, date_str: Optional[str] = None, max_retries: int = 5) -> Tuple[str, str]:
+        """
+        Compute the next file name by listing existing ones and incrementing.
+        Includes a collision check (exists) and retries if necessary.
+        Returns: (filename, full_gcs_path)
+        """
+        start = self._max_existing_id() + 1
+        n = start
+        for _ in range(max_retries):
+            candidate = self._build_filename(n, date_str=date_str)
+            dest_path = self._dest_path(candidate)
+            # collision check
+            if not self.client.blob_exists(dest_path):
+                return candidate, dest_path
+            n += 1
+
+        # As a final fallback, return the last tried (very unlikely to collide repeatedly)
+        candidate = self._build_filename(n, date_str=date_str)
+        return candidate, self._dest_path(candidate)
+
+    # ---------- Public save methods (incremental) ----------
+
+    def upload_file_with_increment(
+        self,
+        local_path: str,
+        date_str: Optional[str] = None,
+        content_type: str = "text/csv",
+    ) -> str:
+        """
+        Upload a local file using the next incremental name.
+        Returns the gs:// URL of the uploaded object (string) or "" on failure.
+        """
         if not self.is_available():
             logger.warning("⚠️ Firebase saver unavailable")
-            return False
+            return ""
         try:
-            dest = self._dest_path(dest_name or os.path.basename(local_path), subdir=subdir)
-            self.client.upload_from_filename(local_path, dest, content_type)
-            logger.info(f"✅ Uploaded file to gs://{self.bucket_name}/{dest}")
-            return True
+            filename, dest_path = self._next_available_name(date_str=date_str)
+            self.client.upload_from_filename(local_path, dest_path, content_type)
+            logger.info(f"✅ Uploaded file to gs://{FIXED_BUCKET}/{dest_path}")
+            return f"gs://{FIXED_BUCKET}/{dest_path}"
         except Exception as e:
             logger.error(f"❌ Firebase upload failed: {e}")
-            return False
+            return ""
 
-    def upload_dataframe(self, df: pd.DataFrame, dest_name: str, subdir: Optional[str] = None, content_type: str = "text/csv") -> bool:
+    def upload_dataframe_with_increment(
+        self,
+        df: pd.DataFrame,
+        date_str: Optional[str] = None,
+        content_type: str = "text/csv",
+    ) -> str:
+        """
+        Upload a DataFrame (as CSV) using the next incremental name.
+        Returns the gs:// URL of the uploaded object (string) or "" on failure.
+        """
         if not self.is_available():
             logger.warning("⚠️ Firebase saver unavailable")
-            return False
+            return ""
         try:
             buf = io.StringIO()
             df.to_csv(buf, index=False)
             data = buf.getvalue().encode("utf-8")
-            dest = self._dest_path(dest_name, subdir=subdir)
-            self.client.upload_from_bytes(data, dest, content_type)
-            logger.info(f"✅ Uploaded DataFrame to gs://{self.bucket_name}/{dest}")
-            return True
+
+            filename, dest_path = self._next_available_name(date_str=date_str)
+            self.client.upload_from_bytes(data, dest_path, content_type)
+            logger.info(f"✅ Uploaded DataFrame to gs://{FIXED_BUCKET}/{dest_path}")
+            return f"gs://{FIXED_BUCKET}/{dest_path}"
         except Exception as e:
             logger.error(f"❌ Firebase DF upload failed: {e}")
-            return False
+            return ""
 
-# Convenience
-def save_csv_to_firebase(csv_path: str, dest_name: Optional[str] = None, subdir: Optional[str] = None) -> bool:
-    saver = FirebaseSaver()
-    return saver.upload_file(csv_path, dest_name=dest_name, subdir=subdir)
 
-def save_dataframe_to_firebase(df: pd.DataFrame, dest_name: str, subdir: Optional[str] = None) -> bool:
+# ---------- Convenience free functions ----------
+
+def save_csv_increment(csv_path: str, date_str: Optional[str] = None) -> str:
+    """
+    Upload local CSV with auto-incremented name 'NNN_YYYY-MM-DD_processed.csv'.
+    Returns gs:// URL or "".
+    """
     saver = FirebaseSaver()
-    return saver.upload_dataframe(df, dest_name=dest_name, subdir=subdir)
+    return saver.upload_file_with_increment(csv_path, date_str=date_str)
+
+def save_dataframe_increment(df: pd.DataFrame, date_str: Optional[str] = None) -> str:
+    """
+    Upload DataFrame with auto-incremented name 'NNN_YYYY-MM-DD_processed.csv'.
+    Returns gs:// URL or "".
+    """
+    saver = FirebaseSaver()
+    return saver.upload_dataframe_with_increment(df, date_str=date_str)

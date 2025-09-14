@@ -26,7 +26,7 @@ from data.drive_saver import DriveSaver, get_drive_service, upload_to_folder
 
 # Database
 from data.mongo_saver import MongoSaver, save_csv_to_mongo, save_dataframe_to_mongo, MONGODB_AVAILABLE
-from data.firebase_saver import FirebaseSaver
+from data.firebase_saver import FirebaseSaver, save_csv_increment, save_dataframe_increment
 
 # UL Model
 from utils.ul_label import ULLabeler
@@ -459,23 +459,28 @@ def _process_and_save(df, norm_ts):
         else:
             logger.warning("⚠️  MongoDB not connected")
     except Exception as e:
-        logger.error(f"❌ MongoDB save error: {e}")
-    # 14) Save to Firebase Storage
+            logger.error(f"❌ MongoDB save error: {e}")
+    # 14) Save to Firebase Storage (incremented NNN_YYYY-MM-DD_processed.csv at fixed path)
     try:
-        if firebase_saver.is_available():
-            # Always save as cleaned.csv or cleaned_labeled.csv depends on the labeled_path
+        if firebase_saver and firebase_saver.is_available():
+            # Choose the final artifact to persist
             if labeled_path and os.path.exists(labeled_path):
-                dest_name = "cleaned_labeled.csv"
                 target_path = labeled_path
             else:
-                dest_name = "cleaned.csv"
                 target_path = out_path
-            # e.g. gs://obd-logger-459901.appspot.com/skyledge/processed/2025-09-14/cleaned_labeled.csv
-            uploaded = firebase_saver.upload_file(target_path, dest_name=dest_name, subdir=norm_ts)
-            if uploaded:
-                logger.info("✅ Saved to Firebase Storage")
+            # Optional: use the acquisition date if norm_ts starts with YYYY-MM-DD, else let saver use AUS/Melbourne "today"
+            date_str = None
+            try:
+                date_str = str(norm_ts)[:10] if norm_ts and len(str(norm_ts)) >= 10 else None
+            except Exception:
+                date_str = None
+            # Upload with auto-incremented name: NNN_YYYY-MM-DD_processed.csv under skyledge/processed
+            gs_url = firebase_saver.upload_file_with_increment(target_path, date_str=date_str)
+            # Save to Firebase Storage (incremented NNN_YYYY-MM-DD_processed.csv at fixed path)
+            if gs_url:
+                logger.info(f"✅ Saved to Firebase Storage: {gs_url}")
             else:
-                logger.warning("⚠️ Firebase Storage upload returned False")
+                logger.warning("⚠️ Firebase Storage upload returned empty URL")
         else:
             logger.warning("⚠️ Firebase Storage not available")
     except Exception as e:
