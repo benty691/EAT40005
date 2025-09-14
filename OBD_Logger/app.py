@@ -470,7 +470,7 @@ def _process_and_save(df, norm_ts):
             else:
                 dest_name = "cleaned.csv"
                 target_path = out_path
-            # e.g. gs://skyledge-36b56.firebasestorage.app/skyledge/processed/2025-09-14/cleaned_labeled.cs
+            # e.g. gs://obd-logger-459901.appspot.com/skyledge/processed/2025-09-14/cleaned_labeled.csv
             uploaded = firebase_saver.upload_file(target_path, dest_name=dest_name, subdir=norm_ts)
             if uploaded:
                 logger.info("✅ Saved to Firebase Storage")

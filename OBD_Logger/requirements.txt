@@ -24,6 +24,7 @@ google-api-python-client
 # Database
 pymongo
 google-cloud-storage
+firebase-admin
 
 # Visualize
 matplotlib
