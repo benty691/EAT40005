@@ -34,11 +34,14 @@ def _load_any(path):
             with open(path, "rb") as f:
                 model = pickle.load(f)
     
-    # Handle XGBoost compatibility issues
-    if hasattr(model, 'use_label_encoder'):
-        # Remove deprecated use_label_encoder attribute for newer XGBoost versions
+    # Fix XGBoost compatibility issues for older trained models
+    if hasattr(model, 'get_booster'):  # This is an XGBoost model
+        # Remove deprecated use_label_encoder attribute that causes issues in newer XGBoost versions
         if hasattr(model, '__dict__'):
             model.__dict__.pop('use_label_encoder', None)
+            # Also remove other deprecated attributes
+            model.__dict__.pop('_le', None)
+            model.__dict__.pop('_label_encoder', None)
     
     return model
 
@@ -51,7 +54,7 @@ class ULLabeler:
         self.le   = _load_any(LE_PATH)
         self.scal = _load_any(SC_PATH)
         self.clf  = _load_any(XGB_PATH)
-        
+
         # Additional XGBoost compatibility fixes
         self._fix_xgb_compatibility()
 
@@ -123,7 +126,10 @@ class ULLabeler:
             if 'use_label_encoder' in str(e):
                 # Last resort: try to fix the model and retry
                 log.warning("XGBoost compatibility issue detected, attempting fix...")
-                self._fix_xgb_compatibility()
+                if hasattr(self.clf, '__dict__'):
+                    self.clf.__dict__.pop('use_label_encoder', None)
+                    self.clf.__dict__.pop('_le', None)
+                    self.clf.__dict__.pop('_label_encoder', None)
                 yhat = self.clf.predict(Xs)
             else:
                 raise e
