@@ -7,7 +7,11 @@ jinja2
 # Data
 pandas
 numpy
-scikit-learn
+scikit-learn==1.6.1
+
+# ML Models
+xgboost==1.7.6
+joblib
 
 # Drive
 gspread
@@ -24,3 +28,6 @@ google-cloud-storage
 # Visualize
 matplotlib
 seaborn
+
+# HuggingFace
+huggingface_hub==0.25.2

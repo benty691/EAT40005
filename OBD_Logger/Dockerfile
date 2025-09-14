@@ -13,8 +13,8 @@ COPY --chown=user requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install specific versions for UL model inference
-RUN pip install --no-cache-dir huggingface_hub==0.25.2 xgboost==2.0.3 joblib
+# Install specific versions for UL model inference (compatible with trained models)
+RUN pip install --no-cache-dir huggingface_hub==0.25.2 xgboost==1.7.6 joblib scikit-learn==1.6.1
 
 # ── Pre-mount GDrive (no-op if creds not found) ──
 COPY --chown=user utils/mount_drive.py .

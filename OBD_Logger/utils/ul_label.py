@@ -1,12 +1,17 @@
 # ul_label.py
 # Load UL models and predict driving style
 import os, logging, pickle
+import warnings
 import joblib
 import numpy as np
 import pandas as pd
 
 log = logging.getLogger("ul-labeler")
 log.setLevel(logging.INFO)
+
+# Suppress version compatibility warnings in production
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn.base")
+warnings.filterwarnings("ignore", category=UserWarning, module="xgboost.core")
 
 MODEL_DIR = os.getenv("MODEL_DIR", "/app/models/ul")
 LE_PATH   = os.path.join(MODEL_DIR, "label_encoder_ul.pkl")
@@ -19,11 +24,15 @@ SAFE_DROP = {
 }
 
 def _load_any(path):
-    try:
-        return joblib.load(path)
-    except Exception:
-        with open(path, "rb") as f:
-            return pickle.load(f)
+    # Suppress version compatibility warnings for production
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+        warnings.filterwarnings("ignore", category=UserWarning, module="xgboost")
+        try:
+            return joblib.load(path)
+        except Exception:
+            with open(path, "rb") as f:
+                return pickle.load(f)
 
 class ULLabeler:
     _instance = None
