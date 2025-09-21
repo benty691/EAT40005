@@ -10,32 +10,29 @@ import subprocess
 import sys # For non-blocking input
 import select # For non-blocking input (Unix-like)
 
-# Configuration removed - no longer doing driving style classification or labeling 
 
-# Fuel Efficiency Monitoring Configuration
 # Critical PIDs for fuel consumption calculations - highest frequency
 CRITICAL_FUEL_PIDS = [
-    obd.commands.RPM,           # Engine revolutions per minute - engine stress/efficiency
-    obd.commands.SPEED,         # Vehicle speed in km/h - required for distance normalization  
-    obd.commands.THROTTLE_POS,  # Throttle position 0-100% - driver input intensity
-    obd.commands.MAF,           # Mass Air Flow g/s - primary parameter for fuel consumption
-]
+    obd.commands.RPM,           
+    obd.commands.SPEED,           
+    obd.commands.THROTTLE_POS,  
+    obd.commands.MAF,    
+]       
 
 # Secondary PIDs for efficiency context - medium frequency
 SECONDARY_FUEL_PIDS = [
-    obd.commands.ENGINE_LOAD,      # Engine load 0-100% - capacity utilization
-    obd.commands.INTAKE_PRESSURE,  # Manifold absolute pressure - refine load calculations
+    obd.commands.ENGINE_LOAD,      
+    obd.commands.INTAKE_PRESSURE,  
 ]
 
 # Tertiary PIDs for fuel trim analysis - low frequency
 TERTIARY_FUEL_PIDS = [
-    obd.commands.SHORT_FUEL_TRIM_1,  # STFT1 - Short Term Fuel Trim Bank 1
-    obd.commands.SHORT_FUEL_TRIM_2,  # STFT2 - Short Term Fuel Trim Bank 2  
-    obd.commands.LONG_FUEL_TRIM_1,   # LTFT1 - Long Term Fuel Trim Bank 1
-    obd.commands.LONG_FUEL_TRIM_2,   # LTFT2 - Long Term Fuel Trim Bank 2
+    obd.commands.SHORT_FUEL_TRIM_1,  
+    obd.commands.SHORT_FUEL_TRIM_2,   
+    obd.commands.LONG_FUEL_TRIM_1,   
+    obd.commands.LONG_FUEL_TRIM_2,  
 ]
 
-# Legacy compatibility - combine all PIDs
 HIGH_FREQUENCY_PIDS = CRITICAL_FUEL_PIDS
 LOW_FREQUENCY_PIDS_POOL = SECONDARY_FUEL_PIDS + TERTIARY_FUEL_PIDS
 
@@ -112,7 +109,7 @@ def perform_logging_session(connection):
 
     try:
         if not connection or not connection.is_connected():
-            print("❌ OBD connection not available")
+            print("OBD connection not available")
             return None, "quit"
             
         print(f"Using existing OBD connection: {connection.port_name()}")
@@ -145,8 +142,12 @@ def perform_logging_session(connection):
             if pid_obj.name not in initial_log_entry:
                 initial_log_entry[pid_obj.name] = '' # Default to empty if somehow missed
 
-        # Empty driving style column
+        # Empty driving style and fuel columns
         initial_log_entry['driving_style'] = ''
+        initial_log_entry['Fuel consumed'] = ''
+        initial_log_entry['Fuel Efficiency (L/100KM)'] = ''
+        initial_log_entry['Route'] = ''
+        initial_log_entry['Distance'] = ''
 
     except Exception as e:
         print(f"An error occurred during connection or initial PID sample: {e}")
@@ -157,8 +158,8 @@ def perform_logging_session(connection):
     file_exists = os.path.isfile(original_csv_filepath)
     try:
         with open(original_csv_filepath, 'a', newline='') as csvfile:
-            # Headers for fuel efficiency logging plus placeholder for driving style
-            header_names = ['timestamp'] + [pid.name for pid in ALL_PIDS_TO_LOG] + ['driving_style']
+            # Headers for fuel efficiency logging plus placeholder for driving style and fuel data
+            header_names = ['timestamp'] + [pid.name for pid in ALL_PIDS_TO_LOG] + ['driving_style', 'Fuel consumed', 'Fuel Efficiency (L/100KM)']
 
             writer = csv.DictWriter(csvfile, fieldnames=header_names)
 
@@ -239,6 +240,10 @@ def perform_logging_session(connection):
                      final_log_entry[pid_obj.name] = current_pid_values.get(pid_obj.name, '')
 
                 final_log_entry['driving_style'] = ''
+                final_log_entry['Fuel consumed'] = ''
+                final_log_entry['Fuel Efficiency (L/100KM)'] = ''
+                final_log_entry['Route'] = ''
+                final_log_entry['Distance'] = ''
 
                 writer.writerow(final_log_entry)
                 csvfile.flush()  
