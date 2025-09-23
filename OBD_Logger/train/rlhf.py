@@ -17,8 +17,8 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 import xgboost as xgb
 
 # Import our custom modules
-from loader import LabeledDataLoader
-from saver import ModelSaver
+from .loader import LabeledDataLoader
+from .saver import ModelSaver
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")

@@ -32,7 +32,7 @@ from data.firebase_saver import FirebaseSaver, save_csv_increment, save_datafram
 from utils.ul_label import ULLabeler
 
 # RLHF Training
-from train.rlhf import RLHFTrainer
+from train import RLHFTrainer
 
 # ───────────── Logging Setup ─────────────
 logger = logging.getLogger("obd-logger")
@@ -686,7 +686,7 @@ async def get_rlhf_status():
     Get status of RLHF training system and available labeled data.
     """
     try:
-        from train.loader import LabeledDataLoader
+        from train import LabeledDataLoader
         
         loader = LabeledDataLoader()
         datasets = loader.list_labeled_datasets()
@@ -719,7 +719,7 @@ async def get_trained_datasets():
     Get list of datasets that have already been used for training.
     """
     try:
-        from train.loader import LabeledDataLoader
+        from train import LabeledDataLoader
         
         loader = LabeledDataLoader()
         trained_datasets = loader._get_trained_datasets()
