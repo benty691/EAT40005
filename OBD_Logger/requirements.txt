@@ -32,3 +32,6 @@ seaborn
 
 # HuggingFace
 huggingface_hub==0.25.2
+
+# Additional dependencies for RLHF training
+pyarrow  # For parquet file support
