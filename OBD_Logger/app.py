@@ -31,6 +31,9 @@ from data.firebase_saver import FirebaseSaver, save_csv_increment, save_datafram
 # UL Model
 from utils.ul_label import ULLabeler
 
+# RLHF Training
+from train.rlhf import RLHFTrainer
+
 # ───────────── Logging Setup ─────────────
 logger = logging.getLogger("obd-logger")
 logger.setLevel(logging.INFO)
@@ -606,3 +609,130 @@ async def save_csv_to_mongo_endpoint(
     except Exception as e:
         logger.error(f"CSV to MongoDB save failed: {e}")
         raise HTTPException(status_code=500, detail=f"Save failed: {str(e)}")
+
+
+# ───────────── RLHF Training Endpoints ─────────────
+
+class RLHFTrainingRequest(BaseModel):
+    max_datasets: int = 10
+    force_retrain: bool = False
+
+class RLHFTrainingResponse(BaseModel):
+    status: str
+    model_version: str = None
+    datasets_processed: int = 0
+    samples_processed: int = 0
+    performance_metrics: dict = None
+    error: str = None
+    timestamp: str = None
+
+@app.post("/rlhf/train", response_model=RLHFTrainingResponse)
+async def trigger_rlhf_training(
+    request: RLHFTrainingRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Trigger RLHF (Reinforcement Learning from Human Feedback) training session.
+    
+    This endpoint:
+    1. Loads human-labeled data from Firebase storage (skyledge/labeled)
+    2. Combines it with existing model predictions for RLHF
+    3. Retrains the XGBoost model with the combined dataset
+    4. Saves the new model to Hugging Face Hub
+    """
+    try:
+        logger.info(f"🚀 RLHF training requested with max_datasets={request.max_datasets}")
+        
+        # Initialize trainer
+        trainer = RLHFTrainer()
+        
+        # Run training
+        result = trainer.train(max_datasets=request.max_datasets)
+        
+        if result["status"] == "success":
+            logger.info(f"✅ RLHF training completed: v{result['model_version']}")
+            return RLHFTrainingResponse(
+                status="success",
+                model_version=result["model_version"],
+                datasets_processed=result["datasets_processed"],
+                samples_processed=result["samples_processed"],
+                performance_metrics=result["performance_metrics"],
+                timestamp=datetime.now().isoformat()
+            )
+        elif result["status"] == "no_data":
+            logger.info("ℹ️ No new data available for RLHF training")
+            return RLHFTrainingResponse(
+                status="no_data",
+                timestamp=datetime.now().isoformat()
+            )
+        else:
+            logger.error(f"❌ RLHF training failed: {result.get('error', 'Unknown error')}")
+            return RLHFTrainingResponse(
+                status="error",
+                error=result.get("error", "Unknown error"),
+                timestamp=datetime.now().isoformat()
+            )
+            
+    except Exception as e:
+        logger.error(f"❌ RLHF training endpoint failed: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"RLHF training failed: {str(e)}"
+        )
+
+@app.get("/rlhf/status")
+async def get_rlhf_status():
+    """
+    Get status of RLHF training system and available labeled data.
+    """
+    try:
+        from train.loader import LabeledDataLoader
+        
+        loader = LabeledDataLoader()
+        datasets = loader.list_labeled_datasets()
+        
+        return {
+            "status": "available",
+            "labeled_datasets_count": len(datasets),
+            "datasets": [
+                {
+                    "name": d["name"],
+                    "size": d["size"],
+                    "created": d["created"]
+                } for d in datasets[:10]  # Limit to first 10 for response size
+            ],
+            "firebase_bucket": "skyledge-36b56.firebasestorage.app",
+            "labeled_path": "skyledge/labeled",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ RLHF status check failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Status check failed: {str(e)}"
+        )
+
+@app.get("/rlhf/trained-datasets")
+async def get_trained_datasets():
+    """
+    Get list of datasets that have already been used for training.
+    """
+    try:
+        from train.loader import LabeledDataLoader
+        
+        loader = LabeledDataLoader()
+        trained_datasets = loader._get_trained_datasets()
+        
+        return {
+            "trained_datasets_count": len(trained_datasets),
+            "trained_datasets": trained_datasets,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to get trained datasets: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get trained datasets: {str(e)}"
+        )
