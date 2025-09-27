@@ -40,11 +40,52 @@ class ModelSaver:
         
         logger.info(f"📦 ModelSaver ready | repo={self.repo_id}")
     
+    def _get_next_version(self) -> str:
+        """Get the next version number (1.0, 1.1, 1.2, ..., 1.9, 2.0, etc.)"""
+        try:
+            # List existing versions in HF repo
+            repo_files = self.hf_api.list_repo_files(
+                repo_id=self.repo_id,
+                repo_type="model"
+            )
+            
+            # Find version directories (v1.0, v1.1, etc.)
+            version_dirs = [f for f in repo_files if f.startswith('v') and '/' not in f]
+            versions = []
+            
+            for v_dir in version_dirs:
+                try:
+                    version_str = v_dir[1:]  # Remove 'v' prefix
+                    if '.' in version_str:
+                        major, minor = version_str.split('.')
+                        versions.append((int(major), int(minor)))
+                except (ValueError, IndexError):
+                    continue
+            
+            if not versions:
+                return "1.0"
+            
+            # Sort versions and get the latest
+            versions.sort()
+            latest_major, latest_minor = versions[-1]
+            
+            # Increment version
+            if latest_minor < 9:
+                return f"{latest_major}.{latest_minor + 1}"
+            else:
+                return f"{latest_major + 1}.0"
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to get next version from HF repo: {e}")
+            # Fallback to timestamp-based version
+            return datetime.now().strftime("%Y%m%d_%H%M%S")
+    
     def _create_model_metadata(self, 
                              model_type: str,
                              training_data_info: Dict[str, Any],
                              performance_metrics: Dict[str, float],
-                             model_version: str) -> Dict[str, Any]:
+                             model_version: str,
+                             rlhf_metadata: Dict[str, Any] = None) -> Dict[str, Any]:
         """Create metadata for the trained model"""
         metadata = {
             "model_type": model_type,
@@ -55,7 +96,8 @@ class ModelSaver:
             "framework": "xgboost",
             "task": "driver_behavior_classification",
             "labels": ["aggressive", "normal", "conservative"],  # Based on ul_label.py
-            "features": "obd_sensor_data"
+            "features": "obd_sensor_data",
+            "rlhf_metadata": rlhf_metadata or {}
         }
         return metadata
     
@@ -283,7 +325,8 @@ This model was trained using Reinforcement Learning from Human Feedback (RLHF) t
                            model_version: str,
                            training_data_info: Dict[str, Any],
                            performance_metrics: Dict[str, float],
-                           training_log: Dict[str, Any]) -> Dict[str, str]:
+                           training_log: Dict[str, Any],
+                           rlhf_metadata: Dict[str, Any] = None) -> Dict[str, str]:
         """Complete model saving workflow"""
         try:
             # Create metadata
@@ -291,7 +334,8 @@ This model was trained using Reinforcement Learning from Human Feedback (RLHF) t
                 model_type="xgboost_classifier",
                 training_data_info=training_data_info,
                 performance_metrics=performance_metrics,
-                model_version=model_version
+                model_version=model_version,
+                rlhf_metadata=rlhf_metadata
             )
             
             # Save locally

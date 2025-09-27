@@ -23,6 +23,8 @@ if not logger.handlers:
 # Firebase configuration
 FIREBASE_BUCKET = "skyledge-36b56.firebasestorage.app"
 LABELED_PREFIX = "skyledge/labeled"
+RAW_PREFIX = "skyledge/raw"
+PROCESSED_PREFIX = "skyledge/processed"
 TRAINED_FILE = "trained.txt"
 
 class LabeledDataLoader:
@@ -182,6 +184,97 @@ class LabeledDataLoader:
         """Mark datasets as trained to avoid retraining"""
         self._update_trained_datasets(dataset_names)
     
+    def _parse_labeled_filename(self, filename: str) -> Dict[str, str]:
+        """
+        Parse labeled filename to extract original dataset information.
+        Format: {id}_{source}-{original_id}_{date}-labelled.csv
+        Example: 001_raw-002_2025-09-19-labelled.csv
+        """
+        try:
+            # Remove .csv extension
+            name = filename.replace('.csv', '')
+            
+            # Split by underscore to get parts
+            parts = name.split('_')
+            if len(parts) < 4:
+                return {"error": f"Invalid filename format: {filename}"}
+            
+            # Extract components
+            labeled_id = parts[0]  # 001
+            source_and_original = parts[1]  # raw-002 or processed-002
+            date = parts[2]  # 2025-09-19
+            
+            # Parse source and original ID
+            if '-' in source_and_original:
+                source, original_id = source_and_original.split('-', 1)
+            else:
+                source = source_and_original
+                original_id = "unknown"
+            
+            return {
+                "labeled_id": labeled_id,
+                "source": source,  # raw or processed
+                "original_id": original_id,
+                "date": date,
+                "original_filename": f"{original_id}_{date}-{source}.csv" if source != "unknown" else None
+            }
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to parse filename {filename}: {e}")
+            return {"error": str(e)}
+    
+    def _find_original_dataset(self, labeled_info: Dict[str, str]) -> Optional[str]:
+        """Find the original dataset path based on labeled file info"""
+        if labeled_info.get("error") or not labeled_info.get("original_filename"):
+            return None
+        
+        source = labeled_info["source"]
+        original_filename = labeled_info["original_filename"]
+        
+        if source == "raw":
+            return f"{self.RAW_PREFIX}/{original_filename}"
+        elif source == "processed":
+            return f"{self.PROCESSED_PREFIX}/{original_filename}"
+        else:
+            return None
+    
+    def load_labeled_with_original(self, labeled_path: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], Dict[str, str]]:
+        """
+        Load labeled dataset along with its original dataset for RLHF comparison.
+        Returns: (labeled_df, original_df, metadata)
+        """
+        try:
+            # Load labeled dataset
+            labeled_df = self.load_dataset(labeled_path)
+            if labeled_df is None:
+                return None, None, {"error": "Failed to load labeled dataset"}
+            
+            # Parse filename to get original dataset info
+            filename = labeled_path.split('/')[-1]
+            labeled_info = self._parse_labeled_filename(filename)
+            
+            if labeled_info.get("error"):
+                logger.warning(f"⚠️ Could not parse labeled filename: {labeled_info['error']}")
+                return labeled_df, None, labeled_info
+            
+            # Find and load original dataset
+            original_path = self._find_original_dataset(labeled_info)
+            original_df = None
+            
+            if original_path and self.client.blob_exists(original_path):
+                original_df = self.load_dataset(original_path)
+                if original_df is not None:
+                    logger.info(f"✅ Loaded original dataset: {original_path}")
+                else:
+                    logger.warning(f"⚠️ Failed to load original dataset: {original_path}")
+            else:
+                logger.warning(f"⚠️ Original dataset not found: {original_path}")
+            
+            return labeled_df, original_df, labeled_info
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to load labeled with original: {e}")
+            return None, None, {"error": str(e)}
+    
     def create_training_batch(self, max_datasets: int = 10) -> Tuple[List[pd.DataFrame], List[str]]:
         """
         Create a training batch by loading new datasets.
@@ -213,6 +306,47 @@ class LabeledDataLoader:
             self.mark_datasets_as_trained(dataset_names)
         
         return dataframes, dataset_names
+    
+    def create_rlhf_training_batch(self, max_datasets: int = 10) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """
+        Create RLHF training batch with both labeled and original datasets.
+        Returns tuple of (training_data, dataset_names)
+        Each training_data item contains: {'labeled_df', 'original_df', 'metadata'}
+        """
+        datasets = self.get_new_datasets_for_training()
+        
+        if not datasets:
+            logger.info("📭 No new datasets available for RLHF training")
+            return [], []
+        
+        # Limit the number of datasets
+        datasets = datasets[:max_datasets]
+        
+        training_data = []
+        dataset_names = []
+        
+        for dataset in datasets:
+            labeled_df, original_df, metadata = self.load_labeled_with_original(dataset['path'])
+            
+            if labeled_df is not None:
+                training_item = {
+                    'labeled_df': labeled_df,
+                    'original_df': original_df,
+                    'metadata': metadata,
+                    'dataset_name': dataset['name']
+                }
+                training_data.append(training_item)
+                dataset_names.append(dataset['name'])
+                logger.info(f"✅ Loaded RLHF dataset: {dataset['name']} (original: {metadata.get('original_filename', 'N/A')})")
+            else:
+                logger.warning(f"⚠️ Skipping dataset {dataset['name']} due to load failure")
+        
+        if training_data:
+            logger.info(f"📦 Created RLHF training batch with {len(training_data)} datasets")
+            # Mark these datasets as trained
+            self.mark_datasets_as_trained(dataset_names)
+        
+        return training_data, dataset_names
 
 
 def main():

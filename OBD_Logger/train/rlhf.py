@@ -154,43 +154,73 @@ class RLHFTrainer:
             logger.error(f"❌ Failed to load model: {e}")
             raise
     
-    def _create_rlhf_dataset(self, labeled_data: List[pd.DataFrame]) -> Tuple[np.ndarray, np.ndarray]:
-        """Create RLHF dataset by combining labeled data with model predictions"""
+    def _create_rlhf_dataset(self, training_data: List[Dict[str, Any]]) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+        """Create RLHF dataset by combining labeled data with original data and model predictions"""
         try:
             # Load existing model for generating predictions
             existing_model, label_encoder, scaler, expected_features = self._load_existing_model()
             
             if existing_model is None:
                 logger.warning("⚠️ No existing model found, using only labeled data")
-                return self._prepare_rlhf_from_labeled_only(labeled_data)
+                return self._prepare_rlhf_from_labeled_only(training_data)
             
             # Combine all labeled datasets
-            combined_df = pd.concat(labeled_data, ignore_index=True)
+            labeled_dfs = [item['labeled_df'] for item in training_data if item['labeled_df'] is not None]
+            original_dfs = [item['original_df'] for item in training_data if item['original_df'] is not None]
             
-            # Prepare features and labels
-            X, feature_cols = self._prepare_features(combined_df, expected_features)
-            y = self._prepare_labels(combined_df)
+            combined_labeled_df = pd.concat(labeled_dfs, ignore_index=True)
+            
+            # Prepare features and labels from labeled data
+            X_labeled, feature_cols = self._prepare_features(combined_labeled_df, expected_features)
+            y_labeled = self._prepare_labels(combined_labeled_df)
             
             # Scale features
-            X_scaled = scaler.transform(X)
+            X_labeled_scaled = scaler.transform(X_labeled)
             
-            # Generate model predictions for comparison
-            model_predictions = existing_model.predict(X_scaled)
+            # Generate model predictions on original data for comparison
+            model_predictions = []
+            prediction_confidence = []
             
-            # Create RLHF dataset with human feedback
-            # In a real RLHF setup, this would include reward signals from human feedback
-            # For now, we'll use the labeled data as the "correct" behavior
+            if original_dfs:
+                combined_original_df = pd.concat(original_dfs, ignore_index=True)
+                X_original, _ = self._prepare_features(combined_original_df, expected_features)
+                X_original_scaled = scaler.transform(X_original)
+                
+                # Get model predictions on original data
+                original_predictions = existing_model.predict(X_original_scaled)
+                model_predictions.extend(original_predictions)
+                
+                # Get prediction probabilities for confidence
+                if hasattr(existing_model, 'predict_proba'):
+                    proba = existing_model.predict_proba(X_original_scaled)
+                    confidence = np.max(proba, axis=1)
+                    prediction_confidence.extend(confidence)
             
-            logger.info(f"📊 Created RLHF dataset: {X.shape[0]} samples, {X.shape[1]} features")
-            return X_scaled, y
+            # Create RLHF dataset with preference learning
+            # The labeled data represents the "correct" behavior (human preference)
+            # The model predictions on original data represent what the model thought was correct
+            
+            # For RLHF, we want to learn from the difference between model predictions and human labels
+            rlhf_metadata = {
+                "labeled_samples": len(X_labeled),
+                "original_samples": len(model_predictions) if model_predictions else 0,
+                "model_confidence": np.mean(prediction_confidence) if prediction_confidence else 0.0,
+                "datasets_processed": len(training_data)
+            }
+            
+            logger.info(f"📊 Created RLHF dataset: {len(X_labeled)} labeled samples, {len(model_predictions)} original samples")
+            logger.info(f"📊 Model confidence on original data: {rlhf_metadata['model_confidence']:.3f}")
+            
+            return X_labeled_scaled, y_labeled, rlhf_metadata
             
         except Exception as e:
             logger.error(f"❌ Failed to create RLHF dataset: {e}")
             raise
     
-    def _prepare_rlhf_from_labeled_only(self, labeled_data: List[pd.DataFrame]) -> Tuple[np.ndarray, np.ndarray]:
+    def _prepare_rlhf_from_labeled_only(self, training_data: List[Dict[str, Any]]) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
         """Prepare RLHF dataset from labeled data only (when no existing model)"""
-        combined_df = pd.concat(labeled_data, ignore_index=True)
+        labeled_dfs = [item['labeled_df'] for item in training_data if item['labeled_df'] is not None]
+        combined_df = pd.concat(labeled_dfs, ignore_index=True)
         
         # Prepare features
         X, feature_cols = self._prepare_features(combined_df)
@@ -200,7 +230,15 @@ class RLHFTrainer:
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
         
-        return X_scaled, y
+        rlhf_metadata = {
+            "labeled_samples": len(X),
+            "original_samples": 0,
+            "model_confidence": 0.0,
+            "datasets_processed": len(training_data)
+        }
+        
+        return X_scaled, y, rlhf_metadata
+    
     
     def _train_model(self, X: np.ndarray, y: np.ndarray, 
                     existing_model: Optional[Any] = None) -> Tuple[Any, Any, Any]:
@@ -284,17 +322,17 @@ class RLHFTrainer:
         try:
             logger.info("🚀 Starting RLHF training pipeline")
             
-            # Load new labeled datasets
-            dataframes, dataset_names = self.loader.create_training_batch(max_datasets=max_datasets)
+            # Load new labeled datasets with original data for RLHF
+            training_data, dataset_names = self.loader.create_rlhf_training_batch(max_datasets=max_datasets)
             
-            if not dataframes:
-                logger.warning("⚠️ No new datasets available for training")
+            if not training_data:
+                logger.warning("⚠️ No new datasets available for RLHF training")
                 return {"status": "no_data", "message": "No new datasets available"}
             
-            logger.info(f"📦 Loaded {len(dataframes)} datasets for training")
+            logger.info(f"📦 Loaded {len(training_data)} datasets for RLHF training")
             
             # Create RLHF dataset
-            X, y = self._create_rlhf_dataset(dataframes)
+            X, y, rlhf_metadata = self._create_rlhf_dataset(training_data)
             
             # Load existing model for comparison
             existing_model, existing_le, existing_scaler, expected_features = self._load_existing_model()
@@ -305,8 +343,8 @@ class RLHFTrainer:
             # Evaluate model
             metrics = self._evaluate_model(model, label_encoder, scaler, X, y)
             
-            # Generate model version
-            model_version = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Generate model version using semantic versioning
+            model_version = self.saver._get_next_version()
             
             # Prepare training data info
             training_data_info = {
@@ -334,7 +372,8 @@ class RLHFTrainer:
                 model_version=model_version,
                 training_data_info=training_data_info,
                 performance_metrics=metrics,
-                training_log=training_log
+                training_log=training_log,
+                rlhf_metadata=rlhf_metadata
             )
             
             result = {
