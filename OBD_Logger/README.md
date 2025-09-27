@@ -13,6 +13,8 @@ short_description: OBD-logging FastAPI server with data processing pipelines
 
 A comprehensive OBD-II data logging and processing system built with FastAPI, featuring advanced data cleaning, Google Drive integration, MongoDB storage capabilities, and **Reinforcement Learning from Human Feedback (RLHF)** for driver behavior classification.
 
+![System Architecture](diagram/diagram.svg)
+
 ## Features
 
 - **Real-time OBD-II Data Ingestion**: Stream and process OBD sensor data in real-time

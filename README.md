@@ -3,6 +3,9 @@
 This project is a **FastAPI-based backend** on Hugging Face Space for collecting and processing real-time OBD-II vehicle data streamed from a Raspberry Pi. It performs data cleaning, feature engineering, and saves the final result to **Google Drive**.
 
 Access [Hugging Face](https://huggingface.co/spaces/BinKhoaLe1812/OBD_Logger) repo
+
+![System Architecture](OBD_Logger/diagram/diagram.svg)
+
 ---
 
 ## ⚙️ Features

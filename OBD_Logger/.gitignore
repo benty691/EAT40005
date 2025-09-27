@@ -5,6 +5,7 @@ firebase.json
 
 # Security - prevent token leaks
 *.token
+*.json
 *.key
 *secret*
 *credential*
