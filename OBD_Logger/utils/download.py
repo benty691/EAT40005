@@ -4,6 +4,19 @@ import os, shutil, pathlib, sys
 import json
 from huggingface_hub import hf_hub_download, HfApi
 
+def load_env_file():
+    """Load environment variables from .env file if it exists"""
+    env_path = pathlib.Path(__file__).parent.parent / ".env"
+    if env_path.exists():
+        with open(env_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key] = value
+        return True
+    return False
+
 REPO_ID   = os.getenv("HF_MODEL_REPO", "BinKhoaLe1812/Driver_Behavior_OBD")
 MODEL_DIR = pathlib.Path(os.getenv("MODEL_DIR", "/app/models/ul")).resolve()
 FILES     = ["label_encoder_ul.pkl", "scaler_ul.pkl", "xgb_drivestyle_ul.pkl"]
@@ -13,6 +26,9 @@ MODEL_DIR.mkdir(parents=True, exist_ok=True)
 def get_latest_version():
     """Get the latest model version from Hugging Face repo"""
     try:
+        # Load .env file first
+        load_env_file()
+        
         hf_token = os.getenv("HF_TOKEN")
         if not hf_token:
             print("⚠️ HF_TOKEN not set, using default model files")
@@ -83,6 +99,9 @@ def get_latest_version():
 def fetch_latest(fname: str, version_dir: str = None):
     """Download the latest version of a model file"""
     try:
+        # Load .env file first
+        load_env_file()
+        
         if version_dir:
             # Download from versioned directory
             versioned_path = f"{version_dir}/{fname}"
@@ -130,6 +149,9 @@ def fetch(fname: str):
 
 def main():
     """Download latest models"""
+    # Load .env file first
+    load_env_file()
+    
     success = download_latest_models()
     if not success:
         sys.exit(1)
