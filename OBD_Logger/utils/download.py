@@ -17,6 +17,9 @@ def load_env_file():
         return True
     return False
 
+# Load .env file first before setting any environment variables
+load_env_file()
+
 REPO_ID   = os.getenv("HF_MODEL_REPO", "BinKhoaLe1812/Driver_Behavior_OBD")
 MODEL_DIR = pathlib.Path(os.getenv("MODEL_DIR", "/app/models/ul")).resolve()
 FILES     = ["label_encoder_ul.pkl", "scaler_ul.pkl", "xgb_drivestyle_ul.pkl"]
@@ -26,9 +29,6 @@ MODEL_DIR.mkdir(parents=True, exist_ok=True)
 def get_latest_version():
     """Get the latest model version from Hugging Face repo"""
     try:
-        # Load .env file first
-        load_env_file()
-        
         hf_token = os.getenv("HF_TOKEN")
         if not hf_token:
             print("⚠️ HF_TOKEN not set, using default model files")
@@ -99,9 +99,6 @@ def get_latest_version():
 def fetch_latest(fname: str, version_dir: str = None):
     """Download the latest version of a model file"""
     try:
-        # Load .env file first
-        load_env_file()
-        
         if version_dir:
             # Download from versioned directory
             versioned_path = f"{version_dir}/{fname}"
@@ -149,9 +146,6 @@ def fetch(fname: str):
 
 def main():
     """Download latest models"""
-    # Load .env file first
-    load_env_file()
-    
     success = download_latest_models()
     if not success:
         sys.exit(1)
