@@ -31,6 +31,18 @@ def get_latest_version():
         version_dirs = [f for f in repo_files if f.startswith('v') and '/' not in f]
         print(f"📦 Found version directories: {version_dirs}")
         
+        # Also check for version directories with files inside
+        version_dirs_with_files = []
+        for f in repo_files:
+            if f.startswith('v') and '/' in f:
+                version_dir = f.split('/')[0]
+                if version_dir not in version_dirs_with_files:
+                    version_dirs_with_files.append(version_dir)
+        
+        if version_dirs_with_files:
+            print(f"📦 Found version directories with files: {version_dirs_with_files}")
+            version_dirs.extend(version_dirs_with_files)
+        
         versions = []
         
         for v_dir in version_dirs:
@@ -53,6 +65,9 @@ def get_latest_version():
                 return None  # Use root files
             else:
                 print("❌ No model files found in repository")
+                print("💡 Available files in repository:")
+                for f in sorted(repo_files):
+                    print(f"   - {f}")
                 return None
         
         # Sort versions and get the latest
