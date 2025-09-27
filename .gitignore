@@ -1,3 +1,24 @@
+# Data files
 *.csv
 *.log
-*.json
+
+# Sensitive configuration files (DO NOT COMMIT)
+firebase.json
+service.json
+token.json
+.env
+*.pem
+*.key
+*.crt
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+*.tmp
+*.temp
