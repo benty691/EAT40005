@@ -24,8 +24,13 @@ def get_latest_version():
             repo_type="model"
         )
         
+        print(f"🔍 Checking repository files...")
+        print(f"📁 Found {len(repo_files)} files in repository")
+        
         # Find version directories (v1.0, v1.1, etc.)
         version_dirs = [f for f in repo_files if f.startswith('v') and '/' not in f]
+        print(f"📦 Found version directories: {version_dirs}")
+        
         versions = []
         
         for v_dir in version_dirs:
@@ -34,12 +39,21 @@ def get_latest_version():
                 if '.' in version_str:
                     major, minor = version_str.split('.')
                     versions.append((int(major), int(minor), v_dir))
+                    print(f"✅ Found version: {v_dir} (major={major}, minor={minor})")
             except (ValueError, IndexError):
+                print(f"⚠️ Could not parse version: {v_dir}")
                 continue
         
         if not versions:
-            print("📦 No versioned models found, using default files")
-            return None
+            print("📦 No versioned models found, checking for root files...")
+            # Check if files exist in root
+            root_files = [f for f in repo_files if f in FILES]
+            if root_files:
+                print(f"📁 Found root files: {root_files}")
+                return None  # Use root files
+            else:
+                print("❌ No model files found in repository")
+                return None
         
         # Sort versions and get the latest
         versions.sort()
@@ -57,9 +71,11 @@ def fetch_latest(fname: str, version_dir: str = None):
         if version_dir:
             # Download from versioned directory
             versioned_path = f"{version_dir}/{fname}"
+            print(f"📥 Downloading {fname} from {versioned_path}...")
             src = hf_hub_download(repo_id=REPO_ID, filename=versioned_path, repo_type="model")
         else:
             # Download from root directory (fallback)
+            print(f"📥 Downloading {fname} from root directory...")
             src = hf_hub_download(repo_id=REPO_ID, filename=fname, repo_type="model")
         
         dst = MODEL_DIR / fname
@@ -68,6 +84,10 @@ def fetch_latest(fname: str, version_dir: str = None):
         return True
     except Exception as e:
         print(f"❌ Failed to fetch {fname}: {e}")
+        if version_dir:
+            print(f"   Tried path: {version_dir}/{fname}")
+        else:
+            print(f"   Tried path: {fname}")
         return False
 
 def download_latest_models():
