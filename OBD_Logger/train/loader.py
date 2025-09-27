@@ -5,7 +5,7 @@ import json
 import logging
 import pandas as pd
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from pathlib import Path
 
 # Import Firebase client from the existing firebase_saver

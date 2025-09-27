@@ -95,8 +95,16 @@ class RLHFTrainer:
         return df[label_column].values
     
     def _load_existing_model(self) -> Tuple[Any, Any, Any, List[str]]:
-        """Load existing model components"""
+        """Load existing model components, downloading latest version if needed"""
         try:
+            # First, try to download the latest model
+            logger.info("🔄 Checking for latest model version...")
+            try:
+                from utils.download import download_latest_models
+                download_latest_models()
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to download latest models: {e}")
+            
             model_dir = os.getenv("MODEL_DIR", "/app/models/ul")
             
             model_path = os.path.join(model_dir, "xgb_drivestyle_ul.pkl")

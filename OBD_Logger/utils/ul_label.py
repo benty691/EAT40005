@@ -6,6 +6,11 @@ import joblib
 import numpy as np
 import pandas as pd
 
+# Import download functionality
+import sys
+sys.path.append(os.path.dirname(__file__))
+from download import download_latest_models
+
 log = logging.getLogger("ul-labeler")
 log.setLevel(logging.INFO)
 
@@ -60,7 +65,15 @@ def _load_any(path):
 class ULLabeler:
     _instance = None
 
-    def __init__(self):
+    def __init__(self, auto_download: bool = True):
+        # Auto-download latest models if enabled
+        if auto_download:
+            log.info("🔄 Checking for latest model version...")
+            try:
+                download_latest_models()
+            except Exception as e:
+                log.warning(f"⚠️ Failed to download latest models: {e}")
+        
         if not (os.path.exists(LE_PATH) and os.path.exists(SC_PATH) and os.path.exists(XGB_PATH)):
             raise FileNotFoundError("Model files not found. Ensure download.py ran successfully.")
         self.le   = _load_any(LE_PATH)
@@ -118,9 +131,9 @@ class ULLabeler:
             log.warning(f"XGBoost compatibility fix failed: {e}")
 
     @classmethod
-    def get(cls):
+    def get(cls, auto_download: bool = True):
         if cls._instance is None:
-            cls._instance = ULLabeler()
+            cls._instance = ULLabeler(auto_download=auto_download)
         return cls._instance
 
     def _prepare(self, df: pd.DataFrame):
