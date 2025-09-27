@@ -34,8 +34,7 @@ RUN mkdir -p $HOME/app/logs \
 ENV MODEL_DIR=$HOME/app/models/ul
 ENV HF_MODEL_REPO=BinKhoaLe1812/Driver_Behavior_OBD
 
-# ── Download UL model files on build ──
-RUN python utils/download.py
+# ── Models will be downloaded at runtime when app starts ──
 
 # ── Default port ──
 EXPOSE 7860

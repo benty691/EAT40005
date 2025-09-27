@@ -72,6 +72,36 @@ drive_saver = DriveSaver()
 mongo_saver = MongoSaver()
 firebase_saver = FirebaseSaver()
 
+# ───────────── Model Download on Startup ─────────────
+@app.on_event("startup")
+async def startup_event():
+    """Download models on app startup"""
+    try:
+        logger.info("🚀 Starting model download...")
+        from utils.download import download_latest_models
+        
+        # Load .env file if it exists
+        env_path = pathlib.Path(".env")
+        if env_path.exists():
+            logger.info("📄 Loading .env file...")
+            with open(env_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        os.environ[key] = value
+        
+        # Download models
+        success = download_latest_models()
+        if success:
+            logger.info("✅ Models downloaded successfully on startup")
+        else:
+            logger.warning("⚠️ Model download failed on startup - some features may not work")
+            
+    except Exception as e:
+        logger.error(f"❌ Startup model download failed: {e}")
+        logger.warning("⚠️ Continuing without models - some features may not work")
+
 # ───────────── Render Dashboard UI ──────────────
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/plots", StaticFiles(directory=str(PLOT_DIR)), name="plots")
@@ -495,6 +525,40 @@ def _process_and_save(df, norm_ts):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+@app.get("/models/status")
+def models_status():
+    """Check if models are loaded and available"""
+    try:
+        model_dir = pathlib.Path(os.getenv("MODEL_DIR", "/app/models/ul"))
+        required_files = ["label_encoder_ul.pkl", "scaler_ul.pkl", "xgb_drivestyle_ul.pkl"]
+        
+        available_files = []
+        missing_files = []
+        
+        for file in required_files:
+            file_path = model_dir / file
+            if file_path.exists():
+                available_files.append(file)
+            else:
+                missing_files.append(file)
+        
+        status = "ready" if len(available_files) == len(required_files) else "loading"
+        
+        return {
+            "status": status,
+            "model_directory": str(model_dir),
+            "available_files": available_files,
+            "missing_files": missing_files,
+            "total_files": len(required_files),
+            "loaded_files": len(available_files)
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
 
 
 # ─────── Send status to frontend ─────────────────
