@@ -1,0 +1,11 @@
+.env
+token.json
+service.json
+firebase.json
+
+# Security - prevent token leaks
+*.token
+*.key
+*secret*
+*credential*
+*password*
