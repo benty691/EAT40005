@@ -433,9 +433,7 @@ def _process_and_save(df, norm_ts):
     # 6) Final sort / index
     df.sort_values("timestamp", inplace=True)
     df.reset_index(drop=True, inplace=True)
-    # 7) Scaling after impute (kept from original)
-    if not df.select_dtypes(include=["number"]).empty:
-        df = _scale_numeric(df)
+    # 7) Note: Scaling is now handled by UL labeler to match training pipeline
     # 8) Save
     out_path = os.path.join(CLEANED_DIR, f"cleaned_{norm_ts}.csv")
     df.to_csv(out_path, index=False)
