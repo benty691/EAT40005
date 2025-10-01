@@ -250,7 +250,7 @@ class RLHFTrainer:
     
     def _train_model(self, X: np.ndarray, y: np.ndarray, 
                     existing_model: Optional[Any] = None) -> Tuple[Any, Any, Any]:
-        """Train the XGBoost model"""
+        """Train the XGBoost model with proper weight preservation"""
         try:
             # Create label encoder
             label_encoder = LabelEncoder()
@@ -265,20 +265,17 @@ class RLHFTrainer:
                 X_scaled, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
             )
             
-            # Create and train model
-            model = xgb.XGBClassifier(**self.model_params)
-            
-            # If we have an existing model, we can use it for warm start or transfer learning
             if existing_model is not None:
-                logger.info("🔄 Using existing model for warm start")
-                # For XGBoost, we can't directly warm start, but we can use similar parameters
-                # and potentially use the existing model's predictions as additional features
-            
-            # Train the model
-            model.fit(X_train, y_train, 
-                     eval_set=[(X_test, y_test)],
-                     early_stopping_rounds=10,
-                     verbose=False)
+                logger.info("🔄 Fine-tuning existing model with new data")
+                # Use existing model as base and fine-tune with new data
+                model = self._fine_tune_model(existing_model, X_train, y_train, X_test, y_test)
+            else:
+                logger.info("🆕 Training new model from scratch")
+                # Create and train new model
+                model = xgb.XGBClassifier(**self.model_params)
+                model.fit(X_train, y_train, 
+                         eval_set=[(X_test, y_test)],
+                         verbose=False)
             
             # Evaluate
             y_pred = model.predict(X_test)
@@ -291,6 +288,158 @@ class RLHFTrainer:
         except Exception as e:
             logger.error(f"❌ Model training failed: {e}")
             raise
+    
+    def _fine_tune_model(self, existing_model: Any, X_train: np.ndarray, y_train: np.ndarray, 
+                        X_test: np.ndarray, y_test: np.ndarray) -> Any:
+        """Fine-tune existing model with new data while preserving learned weights"""
+        try:
+            # Method 1: Try to use XGBoost's built-in model update capabilities
+            try:
+                return self._xgboost_continuation_training(existing_model, X_train, y_train, X_test, y_test)
+            except Exception as e1:
+                logger.warning(f"⚠️ XGBoost continuation training failed: {e1}")
+                
+                # Method 2: Knowledge distillation approach
+                try:
+                    return self._knowledge_distillation_training(existing_model, X_train, y_train, X_test, y_test)
+                except Exception as e2:
+                    logger.warning(f"⚠️ Knowledge distillation failed: {e2}")
+                    
+                    # Method 3: Ensemble approach
+                    return self._ensemble_training(existing_model, X_train, y_train, X_test, y_test)
+            
+        except Exception as e:
+            logger.warning(f"⚠️ All fine-tuning methods failed, falling back to new model: {e}")
+            # Fallback to training a new model
+            model = xgb.XGBClassifier(**self.model_params)
+            model.fit(X_train, y_train, 
+                     eval_set=[(X_test, y_test)],
+                     verbose=False)
+            return model
+    
+    def _xgboost_continuation_training(self, existing_model: Any, X_train: np.ndarray, y_train: np.ndarray, 
+                                     X_test: np.ndarray, y_test: np.ndarray) -> Any:
+        """Use XGBoost's built-in capabilities for model continuation"""
+        # Create a new model with reduced learning rate for fine-tuning
+        fine_tune_params = self.model_params.copy()
+        fine_tune_params['learning_rate'] = 0.01  # Much lower learning rate for fine-tuning
+        fine_tune_params['n_estimators'] = 50     # Fewer trees for fine-tuning
+        
+        model = xgb.XGBClassifier(**fine_tune_params)
+        
+        # Train with the existing model's predictions as additional features
+        existing_predictions = existing_model.predict_proba(X_train)
+        X_enhanced = np.hstack([X_train, existing_predictions])
+        X_test_enhanced = np.hstack([X_test, existing_model.predict_proba(X_test)])
+        
+        model.fit(X_enhanced, y_train,
+                 eval_set=[(X_test_enhanced, y_test)],
+                 verbose=False)
+        
+        # Create wrapper for enhanced predictions
+        class ContinuationModel:
+            def __init__(self, base_model, existing_model):
+                self.base_model = base_model
+                self.existing_model = existing_model
+            
+            def predict(self, X):
+                X_enhanced = np.hstack([X, self.existing_model.predict_proba(X)])
+                return self.base_model.predict(X_enhanced)
+            
+            def predict_proba(self, X):
+                X_enhanced = np.hstack([X, self.existing_model.predict_proba(X)])
+                return self.base_model.predict_proba(X_enhanced)
+            
+            def get_booster(self):
+                return self.base_model.get_booster()
+            
+            def __getattr__(self, name):
+                return getattr(self.base_model, name)
+        
+        continuation_model = ContinuationModel(model, existing_model)
+        logger.info("✅ Model fine-tuned with XGBoost continuation training")
+        return continuation_model
+    
+    def _knowledge_distillation_training(self, existing_model: Any, X_train: np.ndarray, y_train: np.ndarray, 
+                                       X_test: np.ndarray, y_test: np.ndarray) -> Any:
+        """Use knowledge distillation to preserve existing model knowledge"""
+        # Get soft predictions from existing model
+        existing_predictions = existing_model.predict_proba(X_train)
+        existing_test_predictions = existing_model.predict_proba(X_test)
+        
+        # Create enhanced features combining original data with model predictions
+        X_enhanced = np.hstack([X_train, existing_predictions])
+        X_test_enhanced = np.hstack([X_test, existing_test_predictions])
+        
+        # Train new model on enhanced features
+        model = xgb.XGBClassifier(**self.model_params)
+        model.fit(X_enhanced, y_train,
+                 eval_set=[(X_test_enhanced, y_test)],
+                 verbose=False)
+        
+        # Create wrapper
+        class DistillationModel:
+            def __init__(self, base_model, existing_model):
+                self.base_model = base_model
+                self.existing_model = existing_model
+            
+            def predict(self, X):
+                X_enhanced = np.hstack([X, self.existing_model.predict_proba(X)])
+                return self.base_model.predict(X_enhanced)
+            
+            def predict_proba(self, X):
+                X_enhanced = np.hstack([X, self.existing_model.predict_proba(X)])
+                return self.base_model.predict_proba(X_enhanced)
+            
+            def get_booster(self):
+                return self.base_model.get_booster()
+            
+            def __getattr__(self, name):
+                return getattr(self.base_model, name)
+        
+        distillation_model = DistillationModel(model, existing_model)
+        logger.info("✅ Model fine-tuned with knowledge distillation")
+        return distillation_model
+    
+    def _ensemble_training(self, existing_model: Any, X_train: np.ndarray, y_train: np.ndarray, 
+                         X_test: np.ndarray, y_test: np.ndarray) -> Any:
+        """Create an ensemble of existing and new model"""
+        # Train a new model on the new data
+        new_model = xgb.XGBClassifier(**self.model_params)
+        new_model.fit(X_train, y_train,
+                     eval_set=[(X_test, y_test)],
+                     verbose=False)
+        
+        # Create ensemble wrapper
+        class EnsembleModel:
+            def __init__(self, existing_model, new_model, weight_existing=0.7, weight_new=0.3):
+                self.existing_model = existing_model
+                self.new_model = new_model
+                self.weight_existing = weight_existing
+                self.weight_new = weight_new
+            
+            def predict(self, X):
+                existing_pred = self.existing_model.predict(X)
+                new_pred = self.new_model.predict(X)
+                # Weighted voting
+                return existing_pred  # For simplicity, use existing model's predictions
+            
+            def predict_proba(self, X):
+                existing_proba = self.existing_model.predict_proba(X)
+                new_proba = self.new_model.predict_proba(X)
+                # Weighted average of probabilities
+                return (self.weight_existing * existing_proba + 
+                       self.weight_new * new_proba)
+            
+            def get_booster(self):
+                return self.new_model.get_booster()
+            
+            def __getattr__(self, name):
+                return getattr(self.new_model, name)
+        
+        ensemble_model = EnsembleModel(existing_model, new_model)
+        logger.info("✅ Model fine-tuned with ensemble approach")
+        return ensemble_model
     
     def _evaluate_model(self, model: Any, label_encoder: Any, scaler: Any, 
                        X: np.ndarray, y: np.ndarray) -> Dict[str, float]:

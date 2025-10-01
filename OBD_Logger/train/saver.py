@@ -5,6 +5,7 @@ import json
 import logging
 import pickle
 import joblib
+import shutil
 from datetime import datetime
 from typing import Dict, Any, Optional
 from pathlib import Path
@@ -49,10 +50,16 @@ class ModelSaver:
                 repo_type="model"
             )
             
-            # Find version directories (v1.0, v1.1, etc.)
-            version_dirs = [f for f in repo_files if f.startswith('v') and '/' not in f]
-            versions = []
+            # Find version directories (v1.0/, v1.1/, etc.)
+            version_dirs = []
+            for f in repo_files:
+                if f.startswith('v') and '/' in f:
+                    # Extract version directory from path like "v1.0/file.txt"
+                    version_dir = f.split('/')[0]
+                    if version_dir not in version_dirs:
+                        version_dirs.append(version_dir)
             
+            versions = []
             for v_dir in version_dirs:
                 try:
                     version_str = v_dir[1:]  # Remove 'v' prefix
@@ -180,17 +187,27 @@ class ModelSaver:
             with open(readme_path, 'w') as f:
                 f.write(readme_content)
             
-            # Upload to Hugging Face Hub
+            # Upload to Hugging Face Hub with versioned directory
+            # Create versioned subdirectory in the temp folder
+            versioned_temp_dir = temp_dir / f"v{model_version}"
+            versioned_temp_dir.mkdir(exist_ok=True)
+            
+            # Move files to versioned directory
+            for file in temp_dir.glob("*"):
+                if file.is_file() and not file.name.startswith("."):
+                    shutil.move(str(file), str(versioned_temp_dir / file.name))
+            
+            # Upload the versioned directory
             self.hf_api.upload_folder(
-                folder_path=str(temp_dir),
+                folder_path=str(versioned_temp_dir),
                 repo_id=self.repo_id,
                 repo_type="model",
+                path_in_repo=f"v{model_version}",
                 commit_message=f"RLHF training update v{model_version}",
                 ignore_patterns=["*.tmp", "*.log"]
             )
             
             # Clean up temp directory
-            import shutil
             shutil.rmtree(temp_dir)
             
             logger.info(f"✅ Model uploaded to Hugging Face Hub: {self.repo_id}")
@@ -229,7 +246,10 @@ This model classifies driver behavior based on OBD (On-Board Diagnostics) sensor
 """
         
         for metric, value in metadata['performance_metrics'].items():
-            readme += f"- **{metric}**: {value:.4f}\n"
+            if isinstance(value, (list, tuple)):
+                readme += f"- **{metric}**: {value}\n"
+            else:
+                readme += f"- **{metric}**: {value:.4f}\n"
         
         readme += f"""
 ## Training Data
@@ -310,7 +330,7 @@ This model was trained using Reinforcement Learning from Human Feedback (RLHF) t
             
             # Upload to Firebase (we'll need to extend FirebaseSaver for this)
             # For now, just log locally
-            logger.info(f"📝 Training log saved: {log_entry}")
+            logger.info(f"📝 Training log saved: v{model_version} with {len(training_log.get('datasets_used', []))} datasets")
             
             return temp_path
             

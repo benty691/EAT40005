@@ -7,6 +7,7 @@ import pandas as pd
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Any
 from pathlib import Path
+from io import StringIO
 
 # Import Firebase client from the existing firebase_saver
 import sys
@@ -104,7 +105,7 @@ class LabeledDataLoader:
         """List all available labeled datasets in Firebase storage"""
         try:
             # List all blobs under the labeled prefix
-            blobs = self.client.bucket.list_blobs(prefix=f"{self.prefix}/")
+            blobs = list(self.client.bucket.list_blobs(prefix=f"{self.prefix}/"))
             
             datasets = []
             trained_datasets = self._get_trained_datasets()
@@ -158,16 +159,16 @@ class LabeledDataLoader:
             
             # Try to determine file type and load accordingly
             if dataset_path.endswith('.csv'):
-                df = pd.read_csv(pd.StringIO(content))
+                df = pd.read_csv(StringIO(content))
             elif dataset_path.endswith('.json'):
-                df = pd.read_json(pd.StringIO(content))
+                df = pd.read_json(StringIO(content))
             elif dataset_path.endswith('.parquet'):
                 # For parquet, we need to download as bytes
                 blob_bytes = blob.download_as_bytes()
                 df = pd.read_parquet(pd.BytesIO(blob_bytes))
             else:
                 # Default to CSV
-                df = pd.read_csv(pd.StringIO(content))
+                df = pd.read_csv(StringIO(content))
             
             logger.info(f"✅ Loaded dataset {dataset_path} with shape {df.shape}")
             return df
