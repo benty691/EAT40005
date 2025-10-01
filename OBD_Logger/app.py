@@ -14,7 +14,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.impute import KNNImputer
 # Utils
 import os, datetime, json, logging, re
@@ -367,7 +367,7 @@ def _process_and_save(df, norm_ts):
             _df["AIRFLOW_PER_RPM"] = _df["MAF"] / _df["RPM"].replace(0, np.nan)
         return _df
 
-    # Apply MinMaxScaler to fit data frame
+    # Apply StandardScaler to match training preprocessing
     def _scale_numeric(_df: pd.DataFrame) -> pd.DataFrame:
         _df = _df.copy()
         num_cols = _df.select_dtypes(include=[np.number]).columns.tolist()
@@ -375,7 +375,7 @@ def _process_and_save(df, norm_ts):
             if c in num_cols:
                 num_cols.remove(c)
         if num_cols:
-            scaler = MinMaxScaler()
+            scaler = StandardScaler()
             _df[num_cols] = scaler.fit_transform(_df[num_cols])
         return _df
 

@@ -137,19 +137,23 @@ class ULLabeler:
         return cls._instance
 
     def _prepare(self, df: pd.DataFrame):
-        # numeric only + drop non-feature columns
-        cols = [c for c in df.columns if c not in SAFE_DROP and pd.api.types.is_numeric_dtype(df[c])]
-        X = df[cols].copy()
-
-        # ensure required features
+        # Match training preprocessing exactly
+        # Drop non-feature columns (same as training)
+        drop_cols = {"timestamp","ul_drivestyle","gt_drivestyle","driving_style","session_id","imported_at","record_index"}
+        X = df.drop(columns=[c for c in drop_cols if c in df.columns])
+        
+        # Keep only numeric columns (same as training)
+        X = X.select_dtypes(include=[np.number]).fillna(0)
+        
+        # ensure required features match training
         if self.expected:
             for c in self.expected:
                 if c not in X.columns:
                     X[c] = 0.0
             X = X[self.expected]  # align order
-        X = X.fillna(0)
-
-        # scale
+        
+        # Data should already be scaled by main pipeline, but apply scaler if needed
+        # This handles cases where the main pipeline scaling might not match exactly
         try:
             Xs = self.scal.transform(X if hasattr(self.scal, "feature_names_in_") else X.values)
         except Exception as e:
