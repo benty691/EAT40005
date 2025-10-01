@@ -67,8 +67,8 @@ The application is structured into modular components:
    ```
 
 4. **Access the Dashboard**:
-   - Web UI: `http://localhost:8000/ui`
-   - API Docs: `http://localhost:8000/docs`
+   - Web UI: `https://binkhoale1812-obd-logger.hf.space/ui`
+   - API Docs: `https://binkhoale1812-obd-logger.hf.space/docs`
 
 ## Data Processing Pipeline
 
@@ -100,6 +100,8 @@ The application is structured into modular components:
 - `POST /rlhf/train`: Trigger RLHF training session
 - `GET /rlhf/status`: Get RLHF system status and available labeled data
 - `GET /rlhf/trained-datasets`: List datasets already used for training
+- `GET /rlhf/pending-datasets`: List datasets available for training but not yet trained
+- `GET /rlhf/latest-model`: Get latest model version information
 
 
 ### Firebase Storage
@@ -131,7 +133,7 @@ The Reinforcement Learning from Human Feedback (RLHF) system enables continuous 
 
 #### Trigger RLHF Training
 ```bash
-curl -X POST "http://localhost:8000/rlhf/train" \
+curl -X POST "https://binkhoale1812-obd-logger.hf.space/rlhf/train" \
      -H "Content-Type: application/json" \
      -d '{
        "max_datasets": 5,
@@ -141,12 +143,83 @@ curl -X POST "http://localhost:8000/rlhf/train" \
 
 #### Check Training Status
 ```bash
-curl -X GET "http://localhost:8000/rlhf/status"
+curl -X GET "https://binkhoale1812-obd-logger.hf.space/rlhf/status"
 ```
 
 #### List Trained Datasets
 ```bash
-curl -X GET "http://localhost:8000/rlhf/trained-datasets"
+curl -X GET "https://binkhoale1812-obd-logger.hf.space/rlhf/trained-datasets"
+```
+
+#### List Pending Datasets
+```bash
+curl -X GET "https://binkhoale1812-obd-logger.hf.space/rlhf/pending-datasets"
+```
+
+#### Get Latest Model Version
+```bash
+curl -X GET "https://binkhoale1812-obd-logger.hf.space/rlhf/latest-model"
+```
+
+### API Response Examples
+
+#### Training Status Response (`/rlhf/status`)
+```json
+{
+  "status": "available",
+  "labeled_datasets_count": 5,
+  "datasets": [
+    {
+      "name": "labeled/dataset1.csv",
+      "size": 1024,
+      "created": "2024-12-01T10:30:00"
+    }
+  ],
+  "firebase_bucket": "skyledge-36b56.firebasestorage.app",
+  "labeled_path": "skyledge/labeled",
+  "timestamp": "2024-12-01T14:30:22"
+}
+```
+
+#### Pending Datasets Response (`/rlhf/pending-datasets`)
+```json
+{
+  "pending_datasets_count": 3,
+  "pending_datasets": [
+    {
+      "name": "labeled/new_dataset1.csv",
+      "size": 2048,
+      "created": "2024-12-01T11:00:00"
+    }
+  ],
+  "total_available": 8,
+  "already_trained": 5,
+  "timestamp": "2024-12-01T14:30:22"
+}
+```
+
+#### Trained Datasets Response (`/rlhf/trained-datasets`)
+```json
+{
+  "trained_datasets_count": 5,
+  "trained_datasets": [
+    "2024-12-01T10:30:00:labeled/dataset1.csv",
+    "2024-12-01T11:15:00:labeled/dataset2.csv",
+    "2024-12-01T12:00:00:labeled/dataset3.csv"
+  ],
+  "timestamp": "2024-12-01T14:30:22"
+}
+```
+
+#### Latest Model Version Response (`/rlhf/latest-model`)
+```json
+{
+  "status": "available",
+  "latest_version": "v1.2",
+  "model_repository": "BinKhoaLe1812/Driver_Behavior_OBD",
+  "version_format": "semantic (v1.0, v1.1, v2.0, etc.)",
+  "timestamp": "2024-12-01T14:30:22"
+}
 ```
 
 ### Data Flow

@@ -557,7 +557,7 @@ def models_status():
         return {
             "status": "error",
             "error": str(e),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.datetime.now().isoformat()
         }
 
 
@@ -721,20 +721,20 @@ async def trigger_rlhf_training(
                 datasets_processed=result["datasets_processed"],
                 samples_processed=result["samples_processed"],
                 performance_metrics=result["performance_metrics"],
-                timestamp=datetime.now().isoformat()
+                timestamp=datetime.datetime.now().isoformat()
             )
         elif result["status"] == "no_data":
             logger.info("ℹ️ No new data available for RLHF training")
             return RLHFTrainingResponse(
                 status="no_data",
-                timestamp=datetime.now().isoformat()
+                timestamp=datetime.datetime.now().isoformat()
             )
         else:
             logger.error(f"❌ RLHF training failed: {result.get('error', 'Unknown error')}")
             return RLHFTrainingResponse(
                 status="error",
                 error=result.get("error", "Unknown error"),
-                timestamp=datetime.now().isoformat()
+                timestamp=datetime.datetime.now().isoformat()
             )
             
     except Exception as e:
@@ -767,7 +767,7 @@ async def get_rlhf_status():
             ],
             "firebase_bucket": "skyledge-36b56.firebasestorage.app",
             "labeled_path": "skyledge/labeled",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.datetime.now().isoformat()
         }
         
     except Exception as e:
@@ -791,7 +791,7 @@ async def get_trained_datasets():
         return {
             "trained_datasets_count": len(trained_datasets),
             "trained_datasets": trained_datasets,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.datetime.now().isoformat()
         }
         
     except Exception as e:
@@ -799,4 +799,79 @@ async def get_trained_datasets():
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get trained datasets: {str(e)}"
+        )
+
+@app.get("/rlhf/pending-datasets")
+async def get_pending_datasets():
+    """
+    Get list of datasets that are available for training but haven't been trained yet.
+    """
+    try:
+        from train import LabeledDataLoader
+        
+        loader = LabeledDataLoader()
+        
+        # Get all labeled datasets
+        all_datasets = loader.list_labeled_datasets()
+        
+        # Get trained datasets
+        trained_datasets = loader._get_trained_datasets()
+        
+        # Filter out trained datasets to get pending ones
+        pending_datasets = []
+        for dataset in all_datasets:
+            dataset_name = dataset['name']
+            # Check if this dataset has been trained
+            is_trained = any(dataset_name in entry for entry in trained_datasets)
+            if not is_trained:
+                pending_datasets.append(dataset)
+        
+        return {
+            "pending_datasets_count": len(pending_datasets),
+            "pending_datasets": pending_datasets,
+            "total_available": len(all_datasets),
+            "already_trained": len(trained_datasets),
+            "timestamp": datetime.datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to get pending datasets: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get pending datasets: {str(e)}"
+        )
+
+@app.get("/rlhf/latest-model")
+async def get_latest_model_version():
+    """
+    Get the latest model version information for the UI.
+    """
+    try:
+        from utils.download import get_latest_version
+        
+        # Get the latest version from Hugging Face
+        latest_version = get_latest_version()
+        
+        if latest_version:
+            return {
+                "status": "available",
+                "latest_version": latest_version,
+                "model_repository": "BinKhoaLe1812/Driver_Behavior_OBD",
+                "version_format": "semantic (v1.0, v1.1, v2.0, etc.)",
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+        else:
+            return {
+                "status": "no_models",
+                "latest_version": None,
+                "model_repository": "BinKhoaLe1812/Driver_Behavior_OBD",
+                "message": "No trained models found in repository",
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to get latest model version: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get latest model version: {str(e)}"
         )
