@@ -32,6 +32,74 @@ if not logger.handlers:
     _h.setFormatter(logging.Formatter("[%(levelname)s] %(asctime)s - %(message)s"))
     logger.addHandler(_h)
 
+# Wrapper classes for fine-tuned models (defined at module level for pickle compatibility)
+class ContinuationModel:
+    """Wrapper for XGBoost continuation training model"""
+    def __init__(self, base_model, existing_model):
+        self.base_model = base_model
+        self.existing_model = existing_model
+    
+    def predict(self, X):
+        X_enhanced = np.hstack([X, self.existing_model.predict_proba(X)])
+        return self.base_model.predict(X_enhanced)
+    
+    def predict_proba(self, X):
+        X_enhanced = np.hstack([X, self.existing_model.predict_proba(X)])
+        return self.base_model.predict_proba(X_enhanced)
+    
+    def get_booster(self):
+        return self.base_model.get_booster()
+    
+    def __getattr__(self, name):
+        return getattr(self.base_model, name)
+
+class DistillationModel:
+    """Wrapper for knowledge distillation model"""
+    def __init__(self, base_model, existing_model):
+        self.base_model = base_model
+        self.existing_model = existing_model
+    
+    def predict(self, X):
+        X_enhanced = np.hstack([X, self.existing_model.predict_proba(X)])
+        return self.base_model.predict(X_enhanced)
+    
+    def predict_proba(self, X):
+        X_enhanced = np.hstack([X, self.existing_model.predict_proba(X)])
+        return self.base_model.predict_proba(X_enhanced)
+    
+    def get_booster(self):
+        return self.base_model.get_booster()
+    
+    def __getattr__(self, name):
+        return getattr(self.base_model, name)
+
+class EnsembleModel:
+    """Wrapper for ensemble model"""
+    def __init__(self, existing_model, new_model, weight_existing=0.7, weight_new=0.3):
+        self.existing_model = existing_model
+        self.new_model = new_model
+        self.weight_existing = weight_existing
+        self.weight_new = weight_new
+    
+    def predict(self, X):
+        existing_pred = self.existing_model.predict(X)
+        new_pred = self.new_model.predict(X)
+        # Weighted voting
+        return existing_pred  # For simplicity, use existing model's predictions
+    
+    def predict_proba(self, X):
+        existing_proba = self.existing_model.predict_proba(X)
+        new_proba = self.new_model.predict_proba(X)
+        # Weighted average of probabilities
+        return (self.weight_existing * existing_proba + 
+               self.weight_new * new_proba)
+    
+    def get_booster(self):
+        return self.new_model.get_booster()
+    
+    def __getattr__(self, name):
+        return getattr(self.new_model, name)
+
 class RLHFTrainer:
     """
     Reinforcement Learning from Human Feedback trainer for driver behavior classification.
@@ -337,25 +405,6 @@ class RLHFTrainer:
                  verbose=False)
         
         # Create wrapper for enhanced predictions
-        class ContinuationModel:
-            def __init__(self, base_model, existing_model):
-                self.base_model = base_model
-                self.existing_model = existing_model
-            
-            def predict(self, X):
-                X_enhanced = np.hstack([X, self.existing_model.predict_proba(X)])
-                return self.base_model.predict(X_enhanced)
-            
-            def predict_proba(self, X):
-                X_enhanced = np.hstack([X, self.existing_model.predict_proba(X)])
-                return self.base_model.predict_proba(X_enhanced)
-            
-            def get_booster(self):
-                return self.base_model.get_booster()
-            
-            def __getattr__(self, name):
-                return getattr(self.base_model, name)
-        
         continuation_model = ContinuationModel(model, existing_model)
         logger.info("✅ Model fine-tuned with XGBoost continuation training")
         return continuation_model
@@ -378,25 +427,6 @@ class RLHFTrainer:
                  verbose=False)
         
         # Create wrapper
-        class DistillationModel:
-            def __init__(self, base_model, existing_model):
-                self.base_model = base_model
-                self.existing_model = existing_model
-            
-            def predict(self, X):
-                X_enhanced = np.hstack([X, self.existing_model.predict_proba(X)])
-                return self.base_model.predict(X_enhanced)
-            
-            def predict_proba(self, X):
-                X_enhanced = np.hstack([X, self.existing_model.predict_proba(X)])
-                return self.base_model.predict_proba(X_enhanced)
-            
-            def get_booster(self):
-                return self.base_model.get_booster()
-            
-            def __getattr__(self, name):
-                return getattr(self.base_model, name)
-        
         distillation_model = DistillationModel(model, existing_model)
         logger.info("✅ Model fine-tuned with knowledge distillation")
         return distillation_model
@@ -411,32 +441,6 @@ class RLHFTrainer:
                      verbose=False)
         
         # Create ensemble wrapper
-        class EnsembleModel:
-            def __init__(self, existing_model, new_model, weight_existing=0.7, weight_new=0.3):
-                self.existing_model = existing_model
-                self.new_model = new_model
-                self.weight_existing = weight_existing
-                self.weight_new = weight_new
-            
-            def predict(self, X):
-                existing_pred = self.existing_model.predict(X)
-                new_pred = self.new_model.predict(X)
-                # Weighted voting
-                return existing_pred  # For simplicity, use existing model's predictions
-            
-            def predict_proba(self, X):
-                existing_proba = self.existing_model.predict_proba(X)
-                new_proba = self.new_model.predict_proba(X)
-                # Weighted average of probabilities
-                return (self.weight_existing * existing_proba + 
-                       self.weight_new * new_proba)
-            
-            def get_booster(self):
-                return self.new_model.get_booster()
-            
-            def __getattr__(self, name):
-                return getattr(self.new_model, name)
-        
         ensemble_model = EnsembleModel(existing_model, new_model)
         logger.info("✅ Model fine-tuned with ensemble approach")
         return ensemble_model
