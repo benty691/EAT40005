@@ -106,11 +106,15 @@ skyledge-36b56.firebasestorage.app/
 
 ## Model Versioning
 
-Each training session creates a new model version with timestamp format: `YYYYMMDD_HHMMSS`
+We follow semantic versioning for model artifacts: `vMAJOR.MINOR`.
+
+- Minor versions increment on each successful RLHF training: `v1.0 → v1.1 → … → v1.9`
+- When the minor version reaches 9, the next version rolls over the major: `v1.9 → v2.0`
+- This guarantees strict, append-only history with no overwrites.
 
 Models are saved to:
 - **Local**: `/app/models/ul/v{version}/`
-- **Hugging Face**: `BinKhoaLe1812/Driver_Behavior_OBD`
+- **Hugging Face**: `BinKhoaLe1812/Driver_Behavior_OBD` under `v{version}/`
 
 ## Data Flow
 
@@ -122,6 +126,63 @@ Models are saved to:
 6. **Evaluation**: Calculate performance metrics
 7. **Model Saving**: Save to local storage and Hugging Face Hub
 8. **Tracking**: Update `trained.txt` with processed datasets
+
+## Training Techniques (Accuracy-Focused)
+
+This RLHF system is designed to maximize generalization and accuracy while preserving prior knowledge. The pipeline uses several complementary techniques:
+
+### 1) Dataset Construction with RLHF
+- **Human-labeled data** from `skyledge/labeled/` is treated as the source of ground truth.
+- We optionally incorporate the current model’s predictions to form an enhanced training signal (RLHF-style preference signal) that emphasizes areas where the model disagrees with humans.
+- This prioritizes learning from difficult or previously misclassified examples, improving convergence toward human-intended behavior.
+
+Why it improves accuracy:
+- Focuses learning on disagreement regions, which are the greatest contributors to error reduction.
+- Continuously integrates fresh human feedback, preventing performance stagnation.
+
+### 2) Preprocessing Alignment (Leak-free, Consistent Features)
+- The production preprocessing (feature scaling) is aligned with training via `StandardScaler` to avoid train–serve skew.
+- We ensure features presented to the model at train and inference time are consistent in names, order, and scaling.
+
+Why it improves accuracy:
+- Eliminates distribution mismatch between training and serving.
+- Stabilizes loss landscape for tree learners with continuous features, enabling more reliable splits.
+
+### 3) Fine-Tuning Strategies that Preserve Knowledge
+To avoid catastrophic forgetting and to methodically improve the model, we apply a tiered fine-tuning strategy when an existing model is available:
+
+- **Continuation Training (reduced LR, few estimators)**
+  - Trains a small number of additional trees with a lower learning rate on an enhanced feature space (original features + existing model soft predictions).
+  - Effectively performs incremental learning while leveraging prior decision boundaries.
+
+- **Knowledge Distillation**
+  - Uses the existing model’s soft probabilities as auxiliary signals alongside ground-truth labels.
+  - The student (new model) learns both from data and teacher signals, smoothing decision boundaries and improving calibration.
+
+- **Ensemble with the Existing Model**
+  - Combines existing and newly trained models (weighted probabilities) when continuation/distillation are not suitable.
+  - Ensures performance never regresses sharply and benefits from complementary strengths.
+
+Why it improves accuracy and stability:
+- Preserves previously learned behaviors while adapting to new data distributions.
+- Distillation integrates teacher knowledge, often improving calibration and top-1 accuracy.
+- Ensemble provides robustness when new data is limited or shifts are partial.
+
+### 4) Model Evaluation and Early Feedback
+- We compute held-out **accuracy** and **cross-validation** scores (`cv_mean ± cv_std`) on the enhanced dataset.
+- The system logs per-version metrics and training metadata to support regression detection and A/B comparisons.
+
+Why it improves accuracy:
+- Cross-validation reduces variance in estimates and guards against overfitting to a single split.
+- Per-version metrics enforce an iterative, measurable improvement cycle.
+
+### 5) Versioned, Append-Only Artifacts
+- Each successful training run produces a new semantic version directory (`v{version}/`) both locally and on the Hub.
+- Older versions remain intact for rollback and benchmarking.
+
+Why it improves accuracy long-term:
+- Enables safe experimentation and rapid rollback if a version underperforms in production.
+- Facilitates longitudinal evaluation and selection of best-performing checkpoints.
 
 ## Performance Monitoring
 
