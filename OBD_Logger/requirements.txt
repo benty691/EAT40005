@@ -9,6 +9,10 @@ pandas
 numpy
 scikit-learn
 
+# ML Models
+xgboost
+joblib
+
 # Drive
 gspread
 oauth2client
@@ -19,7 +23,15 @@ google-api-python-client
 
 # Database
 pymongo
+google-cloud-storage
+firebase-admin
 
 # Visualize
 matplotlib
 seaborn
+
+# HuggingFace
+huggingface_hub==0.25.2
+
+# Additional dependencies for RLHF training
+pyarrow  # For parquet file support

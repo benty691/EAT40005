@@ -13,18 +13,28 @@ COPY --chown=user requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install latest versions for UL model inference
+RUN pip install --no-cache-dir huggingface_hub xgboost joblib scikit-learn
+
 # ── Pre-mount GDrive (no-op if creds not found) ──
-COPY --chown=user mount_drive.py .
+COPY --chown=user utils/mount_drive.py .
 RUN python mount_drive.py || true
 
 # ── Copy application source ──
 COPY --chown=user . .
 
-# ── Make sure cache/log folders are owned by the user ──
-RUN mkdir -p $HOME/app/logs $HOME/app/cache $HOME/app/cache/obd_data
+# ── Create required folders ──
+RUN mkdir -p $HOME/app/logs \
+    $HOME/app/cache \
+    $HOME/app/cache/obd_data \
+    $HOME/app/cache/obd_data/plots \
+    $HOME/app/models/ul
 
-# ── To store plots on write permission ──
-RUN mkdir -p $HOME/app/cache/obd_data/plots
+# ── Environment variables for HuggingFace model ──
+ENV MODEL_DIR=$HOME/app/models/ul
+ENV HF_MODEL_REPO=BinKhoaLe1812/Driver_Behavior_OBD
+
+# ── Models will be downloaded at runtime when app starts ──
 
 # ── Default port ──
 EXPOSE 7860

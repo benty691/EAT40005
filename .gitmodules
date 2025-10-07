@@ -1,0 +1,3 @@
+[submodule "OBD_Logger_submodule"]
+	path = OBD_Logger_submodule
+	url = https://github.com/benty691/EAT40005.git
