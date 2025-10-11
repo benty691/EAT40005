@@ -24,18 +24,22 @@ KPH_TO_MPS = 1 / 3.6
 G_ACCELERATION = 9.80665  
 MIN_MOVING_SPEED_KPH = 2 # have to be moving
 
-AGGRESSIVE_RPM_ENTRY_THRESHOLD = 2700
+VERY_HIGH_RPM_AGGRESSIVE_THRESHOLD = 3500 
+AGGRESSIVE_RPM_ENTRY_THRESHOLD = 2900     
 AGGRESSIVE_THROTTLE_ENTRY_THRESHOLD = 40  
-AGGRESSIVE_RPM_HOLD_THRESHOLD = 2300
-HARSH_BRAKING_THRESHOLD_G = -0.25
+AGGRESSIVE_RPM_HOLD_THRESHOLD = 2400      
+HARSH_BRAKING_THRESHOLD_G = -0.25         
 
-# roc
-AGGRESSIVE_RPM_ROC_THRESHOLD = 500  
-AGGRESSIVE_THROTTLE_ROC_THRESHOLD = 45 
-POSITIVE_ACCEL_FOR_ROC_CHECK_G = 0.1 
+HIGH_RPM_FOR_ROC_AGGRESSIVE_THRESHOLD = 2300 
+AGGRESSIVE_RPM_ROC_THRESHOLD = 500          
+AGGRESSIVE_THROTTLE_ROC_THRESHOLD = 45      
+POSITIVE_ACCEL_FOR_ROC_CHECK_G = 0.1      
 
-MODERATE_RPM_THRESHOLD = 2100
-MODERATE_THROTTLE_THRESHOLD = 25 
+MIN_SPEED_FOR_HOLDING_GEAR_CHECK_KPH = 15 
+LOW_G_FOR_HOLDING_GEAR = 0.1              
+
+MODERATE_RPM_THRESHOLD = 2100             
+MODERATE_THROTTLE_THRESHOLD = 25          
 
 MIN_DATA_POINTS_FOR_ROC = 2 
 
@@ -67,15 +71,26 @@ def load_and_preprocess_data(csv_filepath):
         # Handle empty DataFrame after potential filtering or if it was empty to begin with
         return df # Or handle error appropriately
 
-    numeric_cols = ['SPEED', 'RPM', 'THROTTLE_POS']
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-        else:
-            print(f"Warning: Column {col} not found. It will be filled with NaN.")
+    # Define all possible numeric columns from current fuel efficiency logging
+    all_numeric_cols = ['SPEED', 'RPM', 'THROTTLE_POS', 'MAF', 'ENGINE_LOAD', 'INTAKE_PRESSURE', 
+                        'SHORT_FUEL_TRIM_1', 'SHORT_FUEL_TRIM_2', 'LONG_FUEL_TRIM_1', 'LONG_FUEL_TRIM_2']
+    
+    # Only process columns that exist in the dataframe
+    numeric_cols = [col for col in all_numeric_cols if col in df.columns]
+    required_cols = ['SPEED', 'RPM', 'THROTTLE_POS']  # Essential for driving style analysis
+    
+    # Ensure required columns exist
+    for col in required_cols:
+        if col not in df.columns:
+            print(f"Warning: Required column {col} not found. It will be filled with NaN.")
             df[col] = np.nan
-            
-    df[numeric_cols] = df[numeric_cols].fillna(method='ffill').fillna(0)
+    
+    # Convert all numeric columns to numeric type
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+    # Fill missing values for all numeric columns
+    df[numeric_cols] = df[numeric_cols].ffill().fillna(0)
 
     if 'SPEED' in df.columns:
         df['SPEED_mps'] = df['SPEED'] * KPH_TO_MPS
@@ -115,8 +130,8 @@ def load_and_preprocess_data(csv_filepath):
     return df
 
 def classify_driving_style_stateful(df):
-    if df.empty or not all(col in df.columns for col in ['RPM', 'THROTTLE_POS', 'SPEED', 'acceleration_g']):
-        print("Warning: Missing one or more required columns for stateful classification (RPM, THROTTLE_POS, SPEED, acceleration_g).")
+    if df.empty or not all(col in df.columns for col in ['RPM', 'THROTTLE_POS', 'SPEED', 'acceleration_g', 'RPM_roc', 'THROTTLE_roc']):
+        print("Warning: Missing required columns for stateful classification.")
         return pd.Series([DRIVING_STYLE_UNKNOWN] * len(df), index=df.index, dtype=str)
 
     driving_styles = [DRIVING_STYLE_UNKNOWN] * len(df)
@@ -130,45 +145,63 @@ def classify_driving_style_stateful(df):
         rpm_roc = df.loc[i, 'RPM_roc']
         throttle_roc = df.loc[i, 'THROTTLE_roc']
 
-        row_style = DRIVING_STYLE_PASSIVE
+        row_style = DRIVING_STYLE_PASSIVE # Default for this row
         is_moving = speed_kph > MIN_MOVING_SPEED_KPH
 
-        is_hard_braking_trigger = accel_g < HARSH_BRAKING_THRESHOLD_G and is_moving
-        
-        is_high_abs_rpm_throttle_trigger = (rpm > AGGRESSIVE_RPM_ENTRY_THRESHOLD and
-                                            throttle > AGGRESSIVE_THROTTLE_ENTRY_THRESHOLD and
-                                            is_moving)
-        
+        # --- Define Aggressive Triggers for this specific row ---
+        # 1. Absolute very high RPM
+        trigger_very_high_rpm = (rpm > VERY_HIGH_RPM_AGGRESSIVE_THRESHOLD and is_moving)
+
+        # 2. High RPM + High Throttle (user's primary combo)
+        trigger_high_rpm_throttle = (rpm > AGGRESSIVE_RPM_ENTRY_THRESHOLD and 
+                                     throttle > AGGRESSIVE_THROTTLE_ENTRY_THRESHOLD and 
+                                     is_moving)
+
+        # 3. RoC-based (RPM or Throttle) during active acceleration, with RPM already elevated
         is_actively_accelerating = accel_g > POSITIVE_ACCEL_FOR_ROC_CHECK_G
-        
-        is_high_roc_trigger = (is_moving and
-                               is_actively_accelerating and
-                               (rpm_roc > AGGRESSIVE_RPM_ROC_THRESHOLD or 
-                                throttle_roc > AGGRESSIVE_THROTTLE_ROC_THRESHOLD))
+        trigger_high_roc = (is_moving and is_actively_accelerating and
+                            rpm > HIGH_RPM_FOR_ROC_AGGRESSIVE_THRESHOLD and 
+                            (rpm_roc > AGGRESSIVE_RPM_ROC_THRESHOLD or 
+                             throttle_roc > AGGRESSIVE_THROTTLE_ROC_THRESHOLD))
 
-        is_currently_aggressive_event = is_hard_braking_trigger or is_high_abs_rpm_throttle_trigger or is_high_roc_trigger
+        # 4. Holding gear aggressively (high RPM, moving, but low change in speed)
+        trigger_holding_gear = (rpm > AGGRESSIVE_RPM_HOLD_THRESHOLD and # Using hold RPM as base for this check
+                                is_moving and 
+                                speed_kph > MIN_SPEED_FOR_HOLDING_GEAR_CHECK_KPH and
+                                abs(accel_g) < LOW_G_FOR_HOLDING_GEAR)
 
+        # 5. Hard braking
+        trigger_hard_braking = (accel_g < HARSH_BRAKING_THRESHOLD_G and is_moving)
+
+        # Combine all triggers for the current row
+        is_currently_aggressive_event = (trigger_very_high_rpm or 
+                                         trigger_high_rpm_throttle or 
+                                         trigger_high_roc or 
+                                         trigger_holding_gear or 
+                                         trigger_hard_braking)
+
+        # --- Stateful Logic ---
         if current_style == DRIVING_STYLE_AGGRESSIVE:
-            if is_currently_aggressive_event:
+            if is_currently_aggressive_event: # Re-triggered by a new event this row
                 row_style = DRIVING_STYLE_AGGRESSIVE
-            elif rpm > AGGRESSIVE_RPM_HOLD_THRESHOLD and is_moving:
+            elif rpm > AGGRESSIVE_RPM_HOLD_THRESHOLD and is_moving: # Maintain based on RPM hold
                 row_style = DRIVING_STYLE_AGGRESSIVE
-            else:
+            else: # Conditions to stay aggressive not met, transition out
                 if (rpm > MODERATE_RPM_THRESHOLD or throttle > MODERATE_THROTTLE_THRESHOLD) and is_moving:
                     row_style = DRIVING_STYLE_MODERATE
                 else:
                     row_style = DRIVING_STYLE_PASSIVE
-        else:
+        else: # current_style is Passive or Moderate
             if is_currently_aggressive_event:
-                row_style = DRIVING_STYLE_AGGRESSIVE
-            else:
+                row_style = DRIVING_STYLE_AGGRESSIVE # Enter aggressive state
+            else: # Not an aggressive event, classify as Moderate or Passive
                 if (rpm > MODERATE_RPM_THRESHOLD or throttle > MODERATE_THROTTLE_THRESHOLD) and is_moving:
                     row_style = DRIVING_STYLE_MODERATE
                 else:
                     row_style = DRIVING_STYLE_PASSIVE
         
         driving_styles[i] = row_style
-        current_style = row_style
+        current_style = row_style # Update the overall state for the next iteration
 
     print("Stateful driving style classification complete.")
     return pd.Series(driving_styles, index=df.index)
@@ -206,7 +239,7 @@ def main():
             print(f"Error saving output CSV to {args.output_csv}: {e}")
     else:
         print("\n--- First 20 Rows of Analyzed Data (showing key fields) ---")
-        display_cols = ['timestamp', 'SPEED', 'RPM', 'THROTTLE_POS', 'acceleration_g', 'driving_style_analyzed']
+        display_cols = ['timestamp', 'SPEED', 'RPM', 'THROTTLE_POS', 'acceleration_g', 'RPM_roc', 'THROTTLE_roc', 'driving_style_analyzed']
         display_cols = [col for col in display_cols if col in df.columns]
         if display_cols: print(df[display_cols].head(20))
         else: print("Key display columns not found in DataFrame.")

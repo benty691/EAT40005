@@ -53,7 +53,8 @@ class MongoSaver:
                 self.mongo_uri,
                 serverSelectionTimeoutMS=5000,  # 5 second timeout
                 connectTimeoutMS=10000,         # 10 second connection timeout
-                socketTimeoutMS=10000           # 10 second socket timeout
+                socketTimeoutMS=10000,          # 10 second socket timeout
+                tlsAllowInvalidCertificates=True  # Fix for SSL certificate issues on macOS
             )
             
             # Test connection
