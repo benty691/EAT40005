@@ -336,6 +336,14 @@ def run_scorer_on_csv(original_csv_path):
             json.dump(summary, f, indent=2)
         print(f"Score summary saved: {os.path.basename(summary_json_path)}")
         
+        try:
+            from visualiseScorer import visualize_drive
+            visualization_path = os.path.join(SCORED_LOGS_DIR, f"{base}_visualization.png")
+            visualize_drive(df_scored, results, save_path=visualization_path)
+            print(f"Visualization saved: {os.path.basename(visualization_path)}")
+        except Exception as viz_error:
+            print(f"Warning: Could not generate visualization: {viz_error}")
+        
         # Print quick summary
         print(f"Drive Score: {results['final_score']:.1f}/100 ({results['driving_style']})")
         

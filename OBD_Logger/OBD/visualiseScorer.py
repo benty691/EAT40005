@@ -120,8 +120,9 @@ def visualize_drive(df_scored: pd.DataFrame, results: dict, save_path: str = Non
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         print(f"✓ Visualization saved to {save_path}")
-    
-    plt.show()
+        plt.close() 
+    else:
+        plt.show()
 
 
 def compare_drives(scorer: DrivingAggressivenessScorer, csv_paths: list):
