@@ -62,6 +62,68 @@ def get_pid_value(connection, pid_command):
         print(f"Error querying {pid_command.name}: {e}") 
         return None
 
+ef calculate_fuel_metrics(csv_path):
+    """Calculate fuel consumption and efficiency from MAF and SPEED data."""
+    try:
+        df = pd.read_csv(csv_path)
+        
+        # Constants
+        AFR = 14.7  # Air-Fuel Ratio for petrol
+        FUEL_DENSITY = 737  # gg/ for petrol
+        
+        # Calculate time delta between rows (in seconds)
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df['time_delta'] = df['timestamp'].diff().dt.total_seconds()
+        df.loc[0, 'time_delta'] = 0  # First row has no previous row
+        
+        # Calculate instantaneous fuel rate (L/hr) from MAF
+        df['fuel_rate_L_per_hr'] = (df['MAF'] * 3600) / (AFR * FUEL_DENSITY)
+        
+        # Calculate fuel used in this time interval (L)
+        df['fuel_used_interval'] = (df['fuel_rate_L_per_hr'] / 3600) * df['time_delta']
+        
+        # Calculate distance traveled in this interval (km)
+        df['distance_interval'] = (df['SPEED'] / 3600) * df['time_delta']
+        
+        # Calculate cumulative values
+        df['Fuel_Used'] = df['fuel_used_interval'].cumsum()
+        df['Distance'] = df['distance_interval'].cumsum()
+        
+        # Calculate fuel efficiency (L/100km)
+        df['Fuel_efficiency (L/100km)'] = np.where(
+            df['Distance'] > 0,
+            (df['Fuel_Used'] / df['Distance']) * 100,
+            0
+        )
+        
+        df['Fuel_Used'] = df['Fuel_Used'].round(3)
+        df['Distance'] = df['Distance'].round(2)
+        df['Fuel_efficiency (L/100km)'] = df['Fuel_efficiency (L/100km)'].round(2)
+        
+        # Drop intermediate calculation columns
+        df = df.drop(columns=['time_delta', 'fuel_rate_L_per_hr', 
+                              'fuel_used_interval', 'distance_interval'])
+        
+        # Save back to CSV
+        df.to_csv(csv_path, index=False)
+        
+        # Print summary
+        total_fuel = df['Fuel_Used'].iloc[-1]
+        total_distance = df['Distance'].iloc[-1]
+        avg_efficiency = df['Fuel_efficiency (L/100km)'].iloc[-1]
+        
+        print(f"Total Fuel Used: {total_fuel:.3f} L")
+        print(f"Total Distance: {total_distance:.2f} km")
+        print(f"Average Efficiency: {avg_efficiency:.2f} L/100km")
+        
+        return csv_path
+        
+    except Exception as e:
+        print(f"Error calculating fuel metrics: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
     
 def perform_logging_session(connection):
     """Perform a single logging session with an existing OBD connection."""
@@ -288,7 +350,6 @@ def perform_logging_session(connection):
     return original_csv_filepath, "next"
 
 def run_scorer_on_csv(original_csv_path):
-    """Run aggressiveness scorer on the fuel log and save to ScoredLogs directory."""
     if not SCORING_AVAILABLE:
         print("Scoring module not available, skipping aggressiveness scoring")
         return None
@@ -297,9 +358,8 @@ def run_scorer_on_csv(original_csv_path):
         print(f"Error: Original CSV not found for scoring: {original_csv_path}")
         return None
     
-    print(f"\n🎯 Running aggressiveness scorer...")
+    print(f"\nRunning aggressiveness scorer...")
     
-    # Configure scorer to save to our ScoredLogs directory
     original_filename = os.path.basename(original_csv_path)
     base, ext = os.path.splitext(original_filename)
     
@@ -422,6 +482,8 @@ def main():
                         if len(lines) > 1:  # More than just the header
                             logged_files.append(csv_file)
                             print(f"Drive {session_count} saved: {os.path.basename(csv_file)}")
+
+                            calculate_fuel_metrics(csv_file)
 
                             print(f"\nStarting aggressiveness scoring for drive {session_count}...")
                             scored_file = run_scorer_on_csv(csv_file)
