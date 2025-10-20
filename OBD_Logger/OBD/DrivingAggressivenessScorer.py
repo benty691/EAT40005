@@ -7,81 +7,27 @@ from datetime import datetime
 
 
 class DrivingAggressivenessScorer:
-    
-    # Default parameter weights (sum should equal 1.0)
-    DEFAULT_WEIGHTS = {
-        'RPM': 0.25,
-        'THROTTLE_POS': 0.30,
-        'ENGINE_LOAD': 0.20,
-        'MAF': 0.15,
-        'SPEED': 0.05,
-        'INTAKE_PRESSURE': 0.05
-    }
-    
-    # Theoretical maximum values for normalization (used if no historical data)
-    THEORETICAL_MAXES = {
-        'RPM': 7000,
-        'THROTTLE_POS': 100,
-        'ENGINE_LOAD': 100,
-        'MAF': 300,
-        'SPEED': 200,
-        'INTAKE_PRESSURE': 250
-    }
-    
-    # Theoretical minimum values
-    THEORETICAL_MINS = {
-        'RPM': 0,
-        'THROTTLE_POS': 0,
-        'ENGINE_LOAD': 0,
-        'MAF': 0,
-        'SPEED': 0,
-        'INTAKE_PRESSURE': 0
-    }
-    
     def __init__(self, bounds_file: str = 'obd_bounds.json', weights: Dict = None):
-        """
-        Initialize the scorer.
-        
-        Args:
-            bounds_file: Path to JSON file storing min/max bounds
-            weights: Custom parameter weights (optional)
-        """
         self.bounds_file = Path(bounds_file)
-        self.weights = weights if weights else self.DEFAULT_WEIGHTS.copy()
+        self.weights = weights if weights else self.weights.copy()
         self.bounds = self._load_bounds()
         
-        # Validate weights sum to 1.0
         weight_sum = sum(self.weights.values())
         if not np.isclose(weight_sum, 1.0):
             print(f"Warning: Weights sum to {weight_sum:.3f}, normalizing to 1.0")
             self.weights = {k: v/weight_sum for k, v in self.weights.items()}
     
     def _load_bounds(self) -> Dict:
-        """Load historical min/max bounds from file, or initialize defaults."""
         if self.bounds_file.exists():
             with open(self.bounds_file, 'r') as f:
                 return json.load(f)
-        else:
-            # Initialize with theoretical bounds
-            return {
-                param: {'min': self.THEORETICAL_MINS[param], 
-                       'max': self.THEORETICAL_MAXES[param]}
-                for param in self.weights.keys()
-            }
     
     def _save_bounds(self):
-        """Save current bounds to file."""
         with open(self.bounds_file, 'w') as f:
             json.dump(self.bounds, f, indent=2)
         print(f"✓ Bounds updated and saved to {self.bounds_file}")
     
     def update_bounds(self, df: pd.DataFrame):
-        """
-        Update min/max bounds based on new data.
-        
-        Args:
-            df: DataFrame with OBD data
-        """
         updated = False
         for param in self.weights.keys():
             if param in df.columns:
@@ -104,16 +50,7 @@ class DrivingAggressivenessScorer:
         return updated
     
     def normalize_value(self, value: float, param: str) -> float:
-        """
-        Normalize a parameter value to 0-1 scale based on current bounds.
-        
-        Args:
-            value: Raw parameter value
-            param: Parameter name
-            
-        Returns:
-            Normalized value (0-1)
-        """
+       
         min_val = self.bounds[param]['min']
         max_val = self.bounds[param]['max']
         
@@ -124,15 +61,7 @@ class DrivingAggressivenessScorer:
         return np.clip(normalized, 0.0, 1.0)
     
     def calculate_row_score(self, row: pd.Series) -> float:
-        """
-        Calculate aggressiveness score for a single data row.
         
-        Args:
-            row: Single row of OBD data
-            
-        Returns:
-            Aggressiveness score (0-100)
-        """
         weighted_score = 0.0
         
         for param, weight in self.weights.items():
@@ -144,30 +73,13 @@ class DrivingAggressivenessScorer:
         return weighted_score * 100
     
     def calculate_drive_scores(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Calculate aggressiveness scores for entire drive.
-        
-        Args:
-            df: DataFrame with OBD data
-            
-        Returns:
-            DataFrame with added 'aggressiveness_score' column
-        """
+       
         df = df.copy()
         df['aggressiveness_score'] = df.apply(self.calculate_row_score, axis=1)
         return df
     
     def calculate_aggregate_score(self, scores: np.ndarray) -> Dict:
-        """
-        Calculate aggregate drive score with spike penalties.
-        
-        Args:
-            scores: Array of per-row aggressiveness scores
-            
-        Returns:
-            Dictionary with scoring breakdown
-        """
-        # Base statistics
+      
         mean_score = np.mean(scores)
         median_score = np.median(scores)
         std_score = np.std(scores)
@@ -190,11 +102,9 @@ class DrivingAggressivenessScorer:
         extreme_count = np.sum(scores >= extreme_threshold)
         extreme_percentage = (extreme_count / len(scores)) * 100
         
-        # Calculate spike penalty
         # Penalty increases exponentially with spike frequency and intensity
         spike_penalty = 0.0
         
-        # Penalty for high percentile values
         if p95 > 70:
             spike_penalty += (p95 - 70) * 0.3
         if p99 > 80:
@@ -207,27 +117,13 @@ class DrivingAggressivenessScorer:
             spike_penalty += (extreme_percentage - 2) * 3.0
         
         # Calculate final aggregate score
-        # Start with weighted average (70% mean, 30% 75th percentile)
         base_score = (mean_score * 0.7) + (p75 * 0.3)
         
         # Apply spike penalty
         final_score = np.clip(base_score + spike_penalty, 0, 100)
         
-        # Determine driving style category
-        if final_score < 20:
-            style = "Very Calm"
-        elif final_score < 40:
-            style = "Calm"
-        elif final_score < 55:
-            style = "Moderate"
-        elif final_score < 70:
-            style = "Aggressive"
-        else:
-            style = "Very Aggressive"
-        
         return {
             'final_score': round(final_score, 2),
-            'driving_style': style,
             'mean_score': round(mean_score, 2),
             'median_score': round(median_score, 2),
             'std_score': round(std_score, 2),
@@ -242,16 +138,7 @@ class DrivingAggressivenessScorer:
         }
     
     def analyze_drive(self, csv_path: str, update_bounds: bool = True) -> Tuple[pd.DataFrame, Dict]:
-        """
-        Complete analysis of a drive log.
-        
-        Args:
-            csv_path: Path to OBD CSV file
-            update_bounds: Whether to update global bounds
-            
-        Returns:
-            Tuple of (scored DataFrame, aggregate score dictionary)
-        """
+      
         print(f"\n{'='*60}")
         print(f"ANALYZING DRIVE: {csv_path}")
         print(f"{'='*60}")
@@ -272,32 +159,12 @@ class DrivingAggressivenessScorer:
         # Calculate aggregate
         aggregate = self.calculate_aggregate_score(df_scored['aggressiveness_score'].values)
         
-        # Print results
-        print(f"\n{'='*60}")
-        print("DRIVE SUMMARY")
-        print(f"{'='*60}")
-        print(f"Final Score:        {aggregate['final_score']:.1f}/100")
-        print(f"Driving Style:      {aggregate['driving_style']}")
-        print(f"\nScore Breakdown:")
-        print(f"  Mean Score:       {aggregate['mean_score']:.1f}")
-        print(f"  Median Score:     {aggregate['median_score']:.1f}")
-        print(f"  75th Percentile:  {aggregate['p75_score']:.1f}")
-        print(f"  95th Percentile:  {aggregate['p95_score']:.1f}")
-        print(f"  Max Score:        {aggregate['max_score']:.1f}")
-        print(f"\nSpike Analysis:")
-        print(f"  Spikes (>70):     {aggregate['spike_percentage']:.1f}%")
-        print(f"  Extreme (>85):    {aggregate['extreme_percentage']:.1f}%")
-        print(f"  Spike Penalty:    +{aggregate['spike_penalty']:.1f}")
-        print(f"{'='*60}\n")
-        
         return df_scored, aggregate
     
     def get_current_bounds(self) -> Dict:
-        """Return current min/max bounds."""
         return self.bounds
     
     def print_bounds(self):
-        """Pretty print current bounds."""
         print("\nCurrent Parameter Bounds:")
         print("-" * 50)
         for param in self.weights.keys():
@@ -306,9 +173,7 @@ class DrivingAggressivenessScorer:
             print(f"{param:20s}: {min_val:8.2f} to {max_val:8.2f}")
 
 
-# Example usage
 if __name__ == "__main__":
-    # Initialize scorer
     scorer = DrivingAggressivenessScorer()
     
     # Analyze a drive

@@ -376,7 +376,6 @@ def run_scorer_on_csv(original_csv_path):
         df_scored, results = scorer.analyze_drive(str(original_csv_path), update_bounds=True)
         
         df_scored['drive_score'] = results['final_score']
-        df_scored['drive_style'] = results['driving_style']
         
         # Save scored CSV to ScoredLogs directory
         scored_csv_path = os.path.join(SCORED_LOGS_DIR, f"{base}_scored{ext}")
@@ -405,7 +404,7 @@ def run_scorer_on_csv(original_csv_path):
             print(f"Warning: Could not generate visualization: {viz_error}")
         
         # Print quick summary
-        print(f"Drive Score: {results['final_score']:.1f}/100 ({results['driving_style']})")
+        print(f"Drive Score: {results['final_score']:.1f}/100")
         
         return scored_csv_path
         

@@ -14,7 +14,7 @@ def visualize_drive(df_scored: pd.DataFrame, results: dict, save_path: str = Non
         save_path: Optional path to save figure
     """
     fig, axes = plt.subplots(3, 2, figsize=(15, 12))
-    fig.suptitle(f"Drive Analysis - Score: {results['final_score']:.1f}/100 ({results['driving_style']})", 
+    fig.suptitle(f"Drive Analysis - Score: {results['final_score']:.1f}/100", 
                  fontsize=16, fontweight='bold')
     
     # 1. Aggressiveness Score Over Time
@@ -91,7 +91,6 @@ def visualize_drive(df_scored: pd.DataFrame, results: dict, save_path: str = Non
     {'─' * 40}
     
     Final Score:          {results['final_score']:.1f} / 100
-    Driving Style:        {results['driving_style']}
     
     SCORE STATISTICS
     Mean:                 {results['mean_score']:.1f}
@@ -146,7 +145,7 @@ def compare_drives(scorer: DrivingAggressivenessScorer, csv_paths: list):
     print("\n" + "="*80)
     print("DRIVE COMPARISON")
     print("="*80)
-    print(comparison_df[['file', 'final_score', 'driving_style', 'mean_score', 
+    print(comparison_df[['file', 'final_score', 'mean_score', 
                          'spike_percentage', 'spike_penalty']].to_string(index=False))
     print("="*80 + "\n")
     
@@ -154,13 +153,7 @@ def compare_drives(scorer: DrivingAggressivenessScorer, csv_paths: list):
 
 
 def batch_analyze_folder(folder_path: str, pattern: str = "*.csv"):
-    """
-    Analyze all CSV files in a folder.
-    
-    Args:
-        folder_path: Path to folder containing CSV files
-        pattern: File pattern to match (default: *.csv)
-    """
+  
     from pathlib import Path
     
     scorer = DrivingAggressivenessScorer()
@@ -187,7 +180,6 @@ def batch_analyze_folder(folder_path: str, pattern: str = "*.csv"):
             print(f"Error processing {csv_file}: {e}")
             continue
     
-    # Create summary report
     summary_df = pd.DataFrame(all_results)
     summary_path = Path(folder_path) / "drive_summary_report.csv"
     summary_df.to_csv(summary_path, index=False)
@@ -197,13 +189,6 @@ def batch_analyze_folder(folder_path: str, pattern: str = "*.csv"):
 
 
 def export_bounds_report(scorer: DrivingAggressivenessScorer, output_path: str = "bounds_report.txt"):
-    """
-    Export a detailed report of current bounds and weights.
-    
-    Args:
-        scorer: DrivingAggressivenessScorer instance
-        output_path: Path to save report
-    """
     bounds = scorer.get_current_bounds()
     
     report = []
@@ -241,23 +226,12 @@ def export_bounds_report(scorer: DrivingAggressivenessScorer, output_path: str =
 
 # Example usage
 if __name__ == "__main__":
-    # Initialize scorer
     scorer = DrivingAggressivenessScorer()
     
-    # Option 1: Analyze single drive with visualization
     csv_path = 'obd_data_log_20251012_121810.csv'
     df_scored, results = scorer.analyze_drive(csv_path)
     visualize_drive(df_scored, results, save_path='drive_analysis.png')
     
-    # Option 2: Batch analyze all drives in a folder
-    # summary = batch_analyze_folder('./obd_logs/')
-    
-    # Option 3: Compare specific drives
-    # comparison = compare_drives(scorer, [
-    #     'drive1.csv',
-    #     'drive2.csv', 
-    #     'drive3.csv'
-    # ])
     
     # Export bounds report
     export_bounds_report(scorer)
