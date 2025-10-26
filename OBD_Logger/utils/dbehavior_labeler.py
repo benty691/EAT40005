@@ -10,7 +10,7 @@ from scipy.signal import medfilt
 # Import download functionality
 import sys
 sys.path.append(os.path.dirname(__file__))
-from download import download_latest_models
+from dbehavior_download import download_latest_models
 
 log = logging.getLogger("ul-labeler")
 log.setLevel(logging.INFO)

@@ -97,6 +97,7 @@ The application is structured into modular components:
 - `GET /download/{filename}`: Download cleaned CSV
 - `GET /events`: Get processing status
 - `GET /predictions/latest`: Get latest driver behavior and fuel efficiency predictions
+- `GET /efficiency/{filename}`: Get fuel efficiency prediction for specific processed file
 
 ### MongoDB Operations
 - `GET /mongo/status`: Check MongoDB connection
@@ -163,10 +164,21 @@ The application is structured into modular components:
 }
 ```
 
+### Efficiency Retrieval Response (`GET /efficiency/{filename}`)
+```json
+{
+  "filename": "001_2024-12-01_processed.csv",
+  "efficiency_score": 85.2,
+  "timestamp": "2024-12-01T14:30:22",
+  "status": "success"
+}
+```
+
 ### Firebase Storage
 - Structured data storage with automatic versioning
 - **`skyledge/raw/`**: Original OBD data files
 - **`skyledge/processed/`**: Cleaned and processed data
+- **`skyledge/processed/efficiency.json`**: Fuel efficiency predictions for each processed file
 - **`skyledge/labeled/`**: Human-labeled data for RLHF training
 - **`skyledge/labeled/trained.txt`**: Tracks processed datasets to avoid retraining
 

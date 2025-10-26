@@ -294,6 +294,90 @@ class FirebaseSaver:
         except Exception as e:
             logger.error(f"❌ Firebase DF upload failed: {e}")
             return ""
+    
+    def save_efficiency_data(self, filename: str, efficiency_score: float) -> bool:
+        """
+        Save efficiency data to efficiency.json file in Firebase.
+        
+        Args:
+            filename: The processed filename (e.g., "001_2024-12-01_processed.csv")
+            efficiency_score: The fuel efficiency score (0-100)
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Load existing efficiency data
+            efficiency_data = self.load_efficiency_data()
+            
+            # Add new entry
+            efficiency_data[filename] = {
+                "efficiency_score": efficiency_score,
+                "timestamp": datetime.now().isoformat(),
+                "filename": filename
+            }
+            
+            # Convert to JSON
+            json_data = json.dumps(efficiency_data, indent=2)
+            
+            # Upload to Firebase
+            dest_path = f"{FIXED_PREFIX}/efficiency.json"
+            self.client.upload_from_bytes(
+                json_data.encode("utf-8"), 
+                dest_path, 
+                "application/json"
+            )
+            
+            logger.info(f"✅ Efficiency data saved for {filename}: {efficiency_score}%")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to save efficiency data: {e}")
+            return False
+    
+    def load_efficiency_data(self) -> dict:
+        """
+        Load efficiency data from efficiency.json file in Firebase.
+        
+        Returns:
+            dict: Efficiency data or empty dict if file doesn't exist
+        """
+        try:
+            dest_path = f"{FIXED_PREFIX}/efficiency.json"
+            
+            # Try to download the file
+            blob = self.bucket.blob(dest_path)
+            if not blob.exists():
+                logger.info("📄 efficiency.json not found, returning empty data")
+                return {}
+            
+            # Download and parse JSON
+            json_data = blob.download_as_text()
+            efficiency_data = json.loads(json_data)
+            
+            logger.info(f"✅ Loaded efficiency data: {len(efficiency_data)} entries")
+            return efficiency_data
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load efficiency data: {e}")
+            return {}
+    
+    def get_efficiency_by_filename(self, filename: str) -> Optional[dict]:
+        """
+        Get efficiency data for a specific filename.
+        
+        Args:
+            filename: The processed filename
+            
+        Returns:
+            dict: Efficiency data or None if not found
+        """
+        try:
+            efficiency_data = self.load_efficiency_data()
+            return efficiency_data.get(filename)
+        except Exception as e:
+            logger.error(f"❌ Failed to get efficiency data for {filename}: {e}")
+            return None
 
 
 # ---------- Convenience free functions ----------
@@ -313,3 +397,30 @@ def save_dataframe_increment(df: pd.DataFrame, date_str: Optional[str] = None) -
     """
     saver = FirebaseSaver()
     return saver.upload_dataframe_with_increment(df, date_str=date_str)
+
+def save_efficiency_data(filename: str, efficiency_score: float) -> bool:
+    """
+    Save efficiency data to Firebase efficiency.json file.
+    
+    Args:
+        filename: The processed filename
+        efficiency_score: The fuel efficiency score (0-100)
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    saver = FirebaseSaver()
+    return saver.save_efficiency_data(filename, efficiency_score)
+
+def get_efficiency_by_filename(filename: str) -> Optional[dict]:
+    """
+    Get efficiency data for a specific filename from Firebase.
+    
+    Args:
+        filename: The processed filename
+        
+    Returns:
+        dict: Efficiency data or None if not found
+    """
+    saver = FirebaseSaver()
+    return saver.get_efficiency_by_filename(filename)

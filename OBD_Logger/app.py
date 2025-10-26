@@ -26,7 +26,7 @@ from data.drive_saver import DriveSaver, get_drive_service, upload_to_folder
 
 # Database
 from data.mongo_saver import MongoSaver, save_csv_to_mongo, save_dataframe_to_mongo, MONGODB_AVAILABLE
-from data.firebase_saver import FirebaseSaver, save_csv_increment, save_dataframe_increment
+from data.firebase_saver import FirebaseSaver, save_csv_increment, save_dataframe_increment, save_efficiency_data, get_efficiency_by_filename
 
 # UL Model
 from utils.dbehavior_labeler import ULLabeler
@@ -547,6 +547,21 @@ def _process_and_save(df, norm_ts):
             # Save to Firebase Storage (incremented NNN_YYYY-MM-DD_processed.csv at fixed path)
             if gs_url:
                 logger.info(f"✅ Saved to Firebase Storage: {gs_url}")
+                
+                # Extract filename from gs_url for efficiency data storage
+                try:
+                    filename = gs_url.split('/')[-1]  # Get filename from gs://bucket/path/filename.csv
+                    if FUEL_EFFICIENCY and len(FUEL_EFFICIENCY) > 0:
+                        efficiency_score = FUEL_EFFICIENCY[0]  # Get the first (and only) efficiency score
+                        success = save_efficiency_data(filename, efficiency_score)
+                        if success:
+                            logger.info(f"✅ Efficiency data saved for {filename}: {efficiency_score}%")
+                        else:
+                            logger.warning(f"⚠️ Failed to save efficiency data for {filename}")
+                    else:
+                        logger.warning("⚠️ No fuel efficiency data available to save")
+                except Exception as e:
+                    logger.error(f"❌ Error saving efficiency data: {e}")
             else:
                 logger.warning("⚠️ Firebase Storage upload returned empty URL")
         else:
@@ -639,6 +654,39 @@ def get_latest_predictions():
         "driver_behavior_count": len(DRIVE_STYLE),
         "fuel_efficiency_count": len(FUEL_EFFICIENCY)
     }
+
+@app.get("/efficiency/{filename}")
+def get_efficiency_by_filename(filename: str):
+    """
+    Get fuel efficiency prediction for a specific processed file from Firebase.
+    
+    Args:
+        filename: The processed filename (e.g., "001_2024-12-01_processed.csv")
+        
+    Returns:
+        dict: Efficiency data or error message
+    """
+    try:
+        if not firebase_saver.is_available():
+            raise HTTPException(status_code=503, detail="Firebase Storage not available")
+        
+        efficiency_data = get_efficiency_by_filename(filename)
+        
+        if efficiency_data is None:
+            raise HTTPException(status_code=404, detail=f"Efficiency data not found for {filename}")
+        
+        return {
+            "filename": filename,
+            "efficiency_score": efficiency_data["efficiency_score"],
+            "timestamp": efficiency_data["timestamp"],
+            "status": "success"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error retrieving efficiency data for {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve efficiency data: {str(e)}")
 
 
 # ────── Delete event from dashboard ──────────────
