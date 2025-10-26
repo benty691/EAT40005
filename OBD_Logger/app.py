@@ -15,8 +15,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from sklearn.impute import KNNImputer
 # Utils
+from sklearn.impute import KNNImputer
 import os, datetime, json, logging, re
 from datetime import timedelta
 import pathlib
@@ -29,7 +29,10 @@ from data.mongo_saver import MongoSaver, save_csv_to_mongo, save_dataframe_to_mo
 from data.firebase_saver import FirebaseSaver, save_csv_increment, save_dataframe_increment
 
 # UL Model
-from utils.ul_label import ULLabeler
+from utils.dbehavior_labeler import ULLabeler
+
+# Fuel Efficiency Model
+from utils.efficiency_labeler import EfficiencyLabeler
 
 # RLHF Training
 from train import RLHFTrainer
@@ -58,6 +61,7 @@ os.makedirs(CLEANED_DIR, exist_ok=True)
 os.makedirs(PLOT_DIR, exist_ok=True)
 
 DRIVE_STYLE = []  # latest UL predictions (string labels) — overwritten each run
+FUEL_EFFICIENCY = []  # latest fuel efficiency predictions (0-100%) — overwritten each run
 
 # Init temp empty file
 if not os.path.exists(RAW_CSV):
@@ -78,7 +82,7 @@ async def startup_event():
     """Download models on app startup"""
     try:
         logger.info("🚀 Starting model download...")
-        from utils.download import download_latest_models
+        from utils.dbehavior_download import download_latest_models
         
         # Load .env file if it exists
         env_path = pathlib.Path(".env")
@@ -96,7 +100,20 @@ async def startup_event():
         if success:
             logger.info("✅ Models downloaded successfully on startup")
         else:
-            logger.warning("⚠️ Model download failed on startup - some features may not work")
+            logger.warning("⚠️ Driver behavior model download failed - some features may not work")
+        
+        # Download fuel efficiency models
+        from utils.efficiency_download import download_latest_efficiency_models
+        success_efficiency = download_latest_efficiency_models()
+        if success_efficiency:
+            logger.info("✅ Fuel efficiency models downloaded successfully")
+        else:
+            logger.warning("⚠️ Fuel efficiency model download failed - some features may not work")
+            
+        if success_ul or success_efficiency:
+            logger.info("✅ At least one model type downloaded successfully")
+        else:
+            logger.warning("⚠️ All model downloads failed - some features may not work")
             
     except Exception as e:
         logger.error(f"❌ Startup model download failed: {e}")
@@ -457,6 +474,26 @@ def _process_and_save(df, norm_ts):
         logger.info(f"✅ UL labels generated ({len(DRIVE_STYLE)}) → {labeled_path}")
     except Exception as e:
         logger.error(f"❌ UL labeling failed: {e}")
+    
+    # 9.5) Fuel efficiency predictions
+    efficiency_path = None
+    try:
+        efficiency_labeler = EfficiencyLabeler.get()
+        efficiency_preds = efficiency_labeler.predict_df(df)
+        # update global FUEL_EFFICIENCY (overwrite if already exists)
+        global FUEL_EFFICIENCY
+        FUEL_EFFICIENCY = [float(p) for p in efficiency_preds]
+        # write efficiency CSV (fuel_efficiency column)
+        df_efficiency = df_for_persist.copy()
+        df_efficiency["fuel_efficiency"] = FUEL_EFFICIENCY
+        efficiency_path = os.path.join(CLEANED_DIR, f"cleaned_{norm_ts}_efficiency.csv")
+        df_efficiency.to_csv(efficiency_path, index=False)
+        df_for_persist = df_efficiency
+        # Update the global FUEL_EFFICIENCY list
+        logger.info(f"✅ Fuel efficiency scores generated ({len(FUEL_EFFICIENCY)}) → {efficiency_path}")
+        logger.info(f"📊 Drive efficiency: {FUEL_EFFICIENCY[0]:.1f}%" if FUEL_EFFICIENCY else "No efficiency score")
+    except Exception as e:
+        logger.error(f"❌ Fuel efficiency scoring failed: {e}")
     # 10) Plots
     _plot_corr(df, norm_ts)
     _plot_trend(df, norm_ts)
@@ -528,28 +565,56 @@ def health():
 def models_status():
     """Check if models are loaded and available"""
     try:
-        model_dir = pathlib.Path(os.getenv("MODEL_DIR", "/app/models/ul"))
-        required_files = ["label_encoder_ul.pkl", "scaler_ul.pkl", "xgb_drivestyle_ul.pkl"]
+        # Driver behavior model status
+        ul_model_dir = pathlib.Path(os.getenv("MODEL_DIR", "/app/models/ul"))
+        ul_required_files = ["label_encoder_ul.pkl", "scaler_ul.pkl", "xgb_drivestyle_ul.pkl"]
         
-        available_files = []
-        missing_files = []
+        ul_available_files = []
+        ul_missing_files = []
         
-        for file in required_files:
-            file_path = model_dir / file
+        for file in ul_required_files:
+            file_path = ul_model_dir / file
             if file_path.exists():
-                available_files.append(file)
+                ul_available_files.append(file)
             else:
-                missing_files.append(file)
+                ul_missing_files.append(file)
         
-        status = "ready" if len(available_files) == len(required_files) else "loading"
+        ul_status = "ready" if len(ul_available_files) == len(ul_required_files) else "loading"
+        
+        # Fuel efficiency model status
+        efficiency_model_dir = pathlib.Path(os.getenv("EFFICIENCY_MODEL_DIR", "/app/models/efficiency"))
+        efficiency_required_files = ["efficiency_model.joblib"]
+        
+        efficiency_available_files = []
+        efficiency_missing_files = []
+        
+        for file in efficiency_required_files:
+            file_path = efficiency_model_dir / file
+            if file_path.exists():
+                efficiency_available_files.append(file)
+            else:
+                efficiency_missing_files.append(file)
+        
+        efficiency_status = "ready" if len(efficiency_available_files) == len(efficiency_required_files) else "loading"
         
         return {
-            "status": status,
-            "model_directory": str(model_dir),
-            "available_files": available_files,
-            "missing_files": missing_files,
-            "total_files": len(required_files),
-            "loaded_files": len(available_files)
+            "driver_behavior": {
+                "status": ul_status,
+                "model_directory": str(ul_model_dir),
+                "available_files": ul_available_files,
+                "missing_files": ul_missing_files,
+                "total_files": len(ul_required_files),
+                "loaded_files": len(ul_available_files)
+            },
+            "fuel_efficiency": {
+                "status": efficiency_status,
+                "model_directory": str(efficiency_model_dir),
+                "available_files": efficiency_available_files,
+                "missing_files": efficiency_missing_files,
+                "total_files": len(efficiency_required_files),
+                "loaded_files": len(efficiency_available_files)
+            },
+            "overall_status": "ready" if (ul_status == "ready" and efficiency_status == "ready") else "loading"
         }
     except Exception as e:
         return {
@@ -563,6 +628,17 @@ def models_status():
 @app.get("/events")
 def get_events():
     return PIPELINE_EVENTS
+
+@app.get("/predictions/latest")
+def get_latest_predictions():
+    """Get the latest driver behavior and fuel efficiency predictions"""
+    return {
+        "driver_behavior": DRIVE_STYLE,
+        "fuel_efficiency": FUEL_EFFICIENCY,
+        "timestamp": datetime.datetime.now().isoformat(),
+        "driver_behavior_count": len(DRIVE_STYLE),
+        "fuel_efficiency_count": len(FUEL_EFFICIENCY)
+    }
 
 
 # ────── Delete event from dashboard ──────────────
@@ -845,7 +921,7 @@ async def get_latest_model_version():
     Get the latest model version information for the UI.
     """
     try:
-        from utils.download import get_latest_version
+        from utils.dbehavior_download import get_latest_version
         
         # Get the latest version from Hugging Face
         latest_version = get_latest_version()

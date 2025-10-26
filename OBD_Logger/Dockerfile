@@ -28,11 +28,14 @@ RUN mkdir -p $HOME/app/logs \
     $HOME/app/cache \
     $HOME/app/cache/obd_data \
     $HOME/app/cache/obd_data/plots \
-    $HOME/app/models/ul
+    $HOME/app/models/ul \
+    $HOME/app/models/efficiency
 
-# ── Environment variables for HuggingFace model ──
+# ── Environment variables for HuggingFace models ──
 ENV MODEL_DIR=$HOME/app/models/ul
 ENV HF_MODEL_REPO=BinKhoaLe1812/Driver_Behavior_OBD
+ENV EFFICIENCY_MODEL_DIR=$HOME/app/models/efficiency
+ENV HF_EFFICIENCY_MODEL_REPO=BinKhoaLe1812/Fuel_Efficiency_OBD
 
 # ── Models will be downloaded at runtime when app starts ──
 

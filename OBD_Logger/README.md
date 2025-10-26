@@ -11,7 +11,7 @@ short_description: OBD-logging FastAPI server with data processing pipelines
 
 # OBD Logger
 
-A comprehensive OBD-II data logging and processing system built with FastAPI, featuring advanced data cleaning, Google Drive integration, MongoDB storage capabilities, and **Reinforcement Learning from Human Feedback (RLHF)** for driver behavior classification.
+A comprehensive OBD-II data logging and processing system built with FastAPI, featuring advanced data cleaning, Google Drive integration, MongoDB storage capabilities, **Reinforcement Learning from Human Feedback (RLHF)** for driver behavior classification, and **fuel efficiency scoring** using machine learning models.
 
 ![System Architecture](diagram/diagram.svg)
 
@@ -24,6 +24,7 @@ A comprehensive OBD-II data logging and processing system built with FastAPI, fe
   - Firebase for structured data storage and querying
   - MongoDB Atlas for structured data storage and querying
 - **Driver Behavior Classification**: XGBoost-based ML model for driving style prediction
+- **Fuel Efficiency Scoring**: ML model for drive-level fuel efficiency prediction (0-100%)
 - **RLHF Training System**: Continuous model improvement through human feedback
 - **Data Visualization**: Automatic generation of correlation heatmaps and trend plots
 - **RESTful API**: Comprehensive endpoints for data management and retrieval
@@ -45,6 +46,9 @@ The application is structured into modular components:
   - **`rlhf.py`**: Main RLHF training pipeline for continuous model improvement
 - **`OBD/`**: OBD-specific modules for data analysis and logging
 - **`utils/`**: Utility modules for model management and data processing
+- **`efficiency/`**: Fuel efficiency model training and evaluation
+  - **`retrain.py`**: Train and upload fuel efficiency models to Hugging Face
+  - **`eval.py`**: Evaluate fuel efficiency on OBD data
 
 ## Quick Start
 
@@ -58,8 +62,10 @@ The application is structured into modular components:
    - `FIREBASE_SERVICE_ACCOUNT_JSON`: Firebase connection string
    - `FIREBASE_ADMIN_JSON`: Firebase Admin SDK credentials
    - `HF_TOKEN`: Hugging Face authentication token
-   - `HF_MODEL_REPO`: Hugging Face model repository (default: `BinKhoaLe1812/Driver_Behavior_OBD`)
-   - `MODEL_DIR`: Local model directory (default: `/app/models/ul`)
+   - `HF_MODEL_REPO`: Driver behavior model repository (default: `BinKhoaLe1812/Driver_Behavior_OBD`)
+   - `HF_EFFICIENCY_MODEL_REPO`: Fuel efficiency model repository (default: `BinKhoaLe1812/Fuel_Efficiency_OBD`)
+   - `MODEL_DIR`: Driver behavior model directory (default: `/app/models/ul`)
+   - `EFFICIENCY_MODEL_DIR`: Fuel efficiency model directory (default: `/app/models/efficiency`)
 
 3. **Run the Application**:
    ```bash
@@ -77,8 +83,9 @@ The application is structured into modular components:
 3. **Feature Engineering**: Derived metrics and sensor combinations
 4. **Storage**: Simultaneous save to Google Drive, Firebase, and MongoDB
 5. **Driver Behavior Classification**: XGBoost model prediction on processed data
-6. **RLHF Training**: Continuous model improvement through human feedback
-7. **Visualization**: Correlation analysis and trend plots
+6. **Fuel Efficiency Scoring**: ML model prediction for drive-level efficiency (0-100%)
+7. **RLHF Training**: Continuous model improvement through human feedback
+8. **Visualization**: Correlation analysis and trend plots
 
 ## API Endpoints
 
@@ -89,6 +96,7 @@ The application is structured into modular components:
 ### Data Retrieval
 - `GET /download/{filename}`: Download cleaned CSV
 - `GET /events`: Get processing status
+- `GET /predictions/latest`: Get latest driver behavior and fuel efficiency predictions
 
 ### MongoDB Operations
 - `GET /mongo/status`: Check MongoDB connection
@@ -103,6 +111,57 @@ The application is structured into modular components:
 - `GET /rlhf/pending-datasets`: List datasets available for training but not yet trained
 - `GET /rlhf/latest-model`: Get latest model version information
 
+## API Request/Response Formats
+
+### Data Ingestion Request (`POST /ingest`)
+```json
+{
+  "timestamp": "2024-12-01T10:30:00",
+  "driving_style": "Normal",
+  "data": {
+    "SPEED": 65.5,
+    "RPM": 2500,
+    "MAF": 8.2,
+    "ENGINE_LOAD": 45.0,
+    "THROTTLE_POS": 25.0
+  },
+  "status": "start|end|null"
+}
+```
+
+### Latest Predictions Response (`GET /predictions/latest`)
+```json
+{
+  "driver_behavior": ["Normal", "Aggressive", "Conservative"],
+  "fuel_efficiency": [85.2, 72.1, 91.5],
+  "timestamp": "2024-12-01T14:30:22",
+  "driver_behavior_count": 3,
+  "fuel_efficiency_count": 3
+}
+```
+
+### Model Status Response (`GET /models/status`)
+```json
+{
+  "driver_behavior": {
+    "status": "ready",
+    "model_directory": "/app/models/ul",
+    "available_files": ["label_encoder_ul.pkl", "scaler_ul.pkl", "xgb_drivestyle_ul.pkl"],
+    "missing_files": [],
+    "total_files": 3,
+    "loaded_files": 3
+  },
+  "fuel_efficiency": {
+    "status": "ready", 
+    "model_directory": "/app/models/efficiency",
+    "available_files": ["efficiency_model.joblib"],
+    "missing_files": [],
+    "total_files": 1,
+    "loaded_files": 1
+  },
+  "overall_status": "ready"
+}
+```
 
 ### Firebase Storage
 - Structured data storage with automatic versioning
@@ -112,9 +171,12 @@ The application is structured into modular components:
 - **`skyledge/labeled/trained.txt`**: Tracks processed datasets to avoid retraining
 
 ### Hugging Face Hub
-- **Model Repository**: `BinKhoaLe1812/Driver_Behavior_OBD`
+- **Driver Behavior Model Repository**: `BinKhoaLe1812/Driver_Behavior_OBD`
+- **Fuel Efficiency Model Repository**: `BinKhoaLe1812/Fuel_Efficiency_OBD`
 - **Semantic Versioning**: v1.0, v1.1, v1.2, ..., v2.0, etc.
-- **Model Components**: XGBoost model, label encoder, scaler
+- **Model Components**: 
+  - Driver Behavior: XGBoost model, label encoder, scaler
+  - Fuel Efficiency: Joblib model with scaler and calibration
 - **Metadata**: Training logs, performance metrics, dataset information
 
 ## RLHF Training System
@@ -257,11 +319,20 @@ The codebase follows clean architecture principles:
 - **Features**: OBD sensor data (speed, RPM, throttle, etc.)
 - **Training**: RLHF with human feedback integration
 
+### Fuel Efficiency Scoring
+- **Model Type**: HistGradientBoostingRegressor/RandomForestRegressor
+- **Output**: Drive-level efficiency score (0-100%)
+- **Features**: Drive-level aggregated features (duration, distance, acceleration patterns, etc.)
+- **Calibration**: Quantile-mapping calibration for accurate scoring
+
 ### Model Artifacts
-- **XGBoost Model**: `xgb_drivestyle_ul.pkl`
-- **Label Encoder**: `label_encoder_ul.pkl`
-- **Feature Scaler**: `scaler_ul.pkl`
-- **Metadata**: Training logs and performance metrics
+- **Driver Behavior**:
+  - XGBoost Model: `xgb_drivestyle_ul.pkl`
+  - Label Encoder: `label_encoder_ul.pkl`
+  - Feature Scaler: `scaler_ul.pkl`
+- **Fuel Efficiency**:
+  - ML Model: `efficiency_model.joblib`
+  - Metadata: `efficiency_meta.json`
 
 ### Versioning Strategy
 - **Semantic Versioning**: 1.0 → 1.1 → 1.2 → 2.0

@@ -102,7 +102,7 @@ class ModelSaver:
             "performance_metrics": performance_metrics,
             "framework": "xgboost",
             "task": "driver_behavior_classification",
-            "labels": ["aggressive", "normal", "conservative"],  # Based on ul_label.py
+            "labels": ["aggressive", "normal", "conservative"],  # Based on dbehavior_labeler.py
             "features": "obd_sensor_data",
             "rlhf_metadata": rlhf_metadata or {}
         }

@@ -168,7 +168,7 @@ class RLHFTrainer:
             # First, try to download the latest model
             logger.info("🔄 Checking for latest model version...")
             try:
-                from utils.download import download_latest_models
+                from utils.dbehavior_download import download_latest_models
                 download_latest_models()
             except Exception as e:
                 logger.warning(f"⚠️ Failed to download latest models: {e}")
