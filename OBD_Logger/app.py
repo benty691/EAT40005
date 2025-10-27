@@ -96,9 +96,9 @@ async def startup_event():
                         os.environ[key] = value
         
         # Download models
-        success = download_latest_models()
-        if success:
-            logger.info("✅ Models downloaded successfully on startup")
+        success_ul = download_latest_models()
+        if success_ul:
+            logger.info("✅ Driver behavior models downloaded successfully on startup")
         else:
             logger.warning("⚠️ Driver behavior model download failed - some features may not work")
         

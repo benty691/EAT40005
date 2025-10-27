@@ -10,7 +10,7 @@ from scipy.signal import medfilt
 # Import download functionality
 import sys
 sys.path.append(os.path.dirname(__file__))
-from download import download_latest_models
+from dbehavior_download import download_latest_models
 
 log = logging.getLogger("dbehavior-labeler")
 log.setLevel(logging.INFO)
@@ -126,6 +126,9 @@ def engineer_features(df):
     def add_roll(col):
         if col not in fe.columns: 
             return
+        # Safety check to prevent infinite recursion
+        if col.startswith(('SPEED_', 'RPM_', 'THROTTLE_', 'MAF_', 'ENGINE_', 'ACCEL_', 'JERK_')):
+            return  # Skip if already a rolling feature
         for w, tag in [(W1, "w1"), (W2, "w2"), (W5, "w5"), (W8, "w8")]:
             fe[f"{col}_mean_{tag}"] = fe[col].rolling(w, min_periods=1, center=True).mean()
             fe[f"{col}_std_{tag}"] = fe[col].rolling(w, min_periods=1, center=True).std()
@@ -189,7 +192,9 @@ def detect_idle_episodes(fe):
     speed_mean = pick("SPEED_mean_w5", "SPEED", default=0.0)
     thr_mean = pick("THROTTLE_POS_mean_w5", "THROTTLE_POS", default=0.0)
     acc_std = pick("ACCEL_std_w5", "ACCEL_std_w2", "ACCEL_std_w1", default=0.0)
-    rpm_std = pick("RPM_std_w5", "RPM", default=0.0).rolling(5, 1).std()
+    rpm_std = pick("RPM_std_w5", "RPM", default=0.0)
+    if rpm_std.sum() > 0:  # Only apply rolling std if there's actual data
+        rpm_std = rpm_std.rolling(5, min_periods=1).std()
     maf_mean = pick("MAF_mean_w5", "MAF", default=0.0)
 
     # Quantile-based gating

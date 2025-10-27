@@ -37,7 +37,7 @@ load_env_file()
 
 # Configuration
 EFFICIENCY_REPO_ID = os.getenv("HF_EFFICIENCY_MODEL_REPO", "BinKhoaLe1812/Fuel_Efficiency_OBD")
-EFFICIENCY_MODEL_DIR = pathlib.Path(os.getenv("EFFICIENCY_MODEL_DIR", "/app/models/efficiency")).resolve()
+EFFICIENCY_MODEL_DIR = pathlib.Path(os.getenv("EFFICIENCY_MODEL_DIR", "/home/user/app/models/efficiency")).resolve()
 EFFICIENCY_FILES = ["efficiency_model.joblib", "efficiency_meta.json"]
 
 EFFICIENCY_MODEL_DIR.mkdir(parents=True, exist_ok=True)
