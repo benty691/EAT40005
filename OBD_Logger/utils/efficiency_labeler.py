@@ -1,7 +1,7 @@
 """
 Fuel Efficiency Labeler
 Provides fuel efficiency scoring for OBD data using the trained model
-Similar to utils/ul_label.py but for fuel efficiency scoring
+Similar to utils/dbehavior_labeler.py but for fuel efficiency scoring
 """
 
 import os
@@ -38,6 +38,7 @@ class EfficiencyLabeler:
         if not EfficiencyLabeler._initialized:
             self._load_model()
             EfficiencyLabeler._initialized = True
+        EfficiencyLabeler._instance = self
     
     @classmethod
     def get(cls):

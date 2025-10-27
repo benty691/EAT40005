@@ -10,9 +10,9 @@ from scipy.signal import medfilt
 # Import download functionality
 import sys
 sys.path.append(os.path.dirname(__file__))
-from dbehavior_download import download_latest_models
+from download import download_latest_models
 
-log = logging.getLogger("ul-labeler")
+log = logging.getLogger("dbehavior-labeler")
 log.setLevel(logging.INFO)
 
 # Suppress version compatibility warnings in production
@@ -168,7 +168,7 @@ def engineer_features(df):
         add_roll("ACCEL_MAG")
 
     # Fill any remaining NaN values
-    fe = fe.fillna(method='bfill').fillna(method='ffill').fillna(0)
+    fe = fe.bfill().ffill().fillna(0)
     
     log.info(f"Engineered features shape: {fe.shape}")
     log.info(f"Total features created: {len(fe.columns)}")
