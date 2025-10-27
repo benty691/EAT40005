@@ -4,3 +4,5 @@ OBD
 data.json
 organize.py
 bulk_mongo_upload.py
+*.ipynb
+notebook

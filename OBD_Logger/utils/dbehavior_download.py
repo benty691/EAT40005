@@ -124,7 +124,14 @@ def fetch_latest(fname: str, version_dir: str = None):
 def download_latest_models():
     """Download the latest version of all model files"""
     print("🔄 Checking for latest model version...")
-    latest_version = get_latest_version()
+    
+    # Check if UL_DEFAULT is set to True to use v1.0 instead of latest
+    ul_default = os.getenv("UL_DEFAULT", "False").lower() in ("true", "1", "yes")
+    if ul_default:
+        print("🔧 UL_DEFAULT=True: Using v1.0 model instead of latest")
+        latest_version = "v1.0"
+    else:
+        latest_version = get_latest_version()
     
     success_count = 0
     for f in FILES:

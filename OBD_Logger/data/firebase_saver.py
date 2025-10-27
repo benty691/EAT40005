@@ -346,7 +346,7 @@ class FirebaseSaver:
             dest_path = f"{FIXED_PREFIX}/efficiency.json"
             
             # Try to download the file
-            blob = self.bucket.blob(dest_path)
+            blob = self.client.bucket.blob(dest_path)
             if not blob.exists():
                 logger.info("📄 efficiency.json not found, returning empty data")
                 return {}

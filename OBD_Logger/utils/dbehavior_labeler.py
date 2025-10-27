@@ -60,9 +60,11 @@ def engineer_features(df):
     """
     Recreate the exact feature engineering pipeline used during training
     """
+    log.info("🔧 Starting feature engineering...")
     fe = df.copy()
     
     # Clean sentinel values
+    log.info("🧹 Cleaning sentinel values...")
     SENTINELS = {-22, -40, 255}
     fe.replace(list(SENTINELS), np.nan, inplace=True)
     
@@ -126,8 +128,8 @@ def engineer_features(df):
     def add_roll(col):
         if col not in fe.columns: 
             return
-        # Safety check to prevent infinite recursion
-        if col.startswith(('SPEED_', 'RPM_', 'THROTTLE_', 'MAF_', 'ENGINE_', 'ACCEL_', 'JERK_')):
+        # Safety check to prevent infinite recursion - only skip if it already has rolling suffix
+        if any(col.endswith(suffix) for suffix in ['_mean_w1', '_std_w1', '_mean_w2', '_std_w2', '_mean_w5', '_std_w5', '_mean_w8', '_std_w8', '_min_w1', '_max_w1']):
             return  # Skip if already a rolling feature
         for w, tag in [(W1, "w1"), (W2, "w2"), (W5, "w5"), (W8, "w8")]:
             fe[f"{col}_mean_{tag}"] = fe[col].rolling(w, min_periods=1, center=True).mean()
@@ -391,69 +393,67 @@ class ULLabeler:
         """
         Predict driving styles with proper feature engineering and idle detection
         """
-        # Step 1: Prepare features using training pipeline
-        Xs, engineered_df = self._prepare(df)
-        
-        # Step 2: Make predictions
         try:
-            predictions_encoded = self.clf.predict(Xs)
-        except (AttributeError, TypeError) as e:
-            if 'use_label_encoder' in str(e) or 'label_encoder' in str(e):
-                # Last resort: try to fix the model and retry
-                log.warning("XGBoost compatibility issue detected, attempting fix...")
-                try:
-                    # Remove all problematic attributes
-                    deprecated_attrs = [
-                        'use_label_encoder', '_le', '_label_encoder',
-                        'use_label_encoder_', '_le_', '_label_encoder_'
-                    ]
-                    for attr in deprecated_attrs:
-                        if hasattr(self.clf, attr):
-                            try:
-                                delattr(self.clf, attr)
-                            except (AttributeError, TypeError):
-                                pass
-                    
-                    # Set use_label_encoder to False
-                    if hasattr(self.clf, 'set_params'):
-                        try:
-                            self.clf.set_params(use_label_encoder=False)
-                        except Exception:
-                            pass
-                    
-                    # Retry prediction
-                    predictions_encoded = self.clf.predict(Xs)
-                except Exception as retry_e:
-                    log.error(f"Failed to fix XGBoost compatibility: {retry_e}")
-                    raise e
-            else:
-                raise e
-        
-        # Step 3: Convert encoded predictions to labels
-        try:
-            predictions_labels = self.le.inverse_transform(predictions_encoded)
-        except Exception:
-            predictions_labels = predictions_encoded
-        
-        # Step 4: Detect idle episodes and override predictions
-        log.info("🔍 Detecting idle episodes...")
-        idle_mask = detect_idle_episodes(engineered_df)
-        idle_count = idle_mask.sum()
-        total_count = len(idle_mask)
-        log.info(f"Idle samples detected: {idle_count} ({idle_count/total_count*100:.1f}%)")
-        
-        # Step 5: Override predictions for idle samples
-        final_predictions = predictions_labels.copy()
-        final_predictions[idle_mask] = "Idle"
-        
-        # Step 6: Log prediction distribution
-        style_proportions = pd.Series(final_predictions).value_counts(normalize=True).sort_index()
-        log.info("📊 FINAL PREDICTION RESULTS:")
-        for style, prop in style_proportions.items():
-            count = (final_predictions == style).sum()
-            log.info(f"  {style:15}: {prop:.3f} ({prop*100:.1f}%) [{count} samples]")
-        
-        return final_predictions
+            log.info("🔧 Starting UL prediction pipeline...")
+            
+            # Step 1: Prepare features using training pipeline
+            log.info("📊 Step 1: Feature engineering...")
+            Xs, engineered_df = self._prepare(df)
+            log.info("✅ Feature engineering completed")
+            
+            # Step 2: Make predictions
+            log.info("🎯 Step 2: Making predictions...")
+            try:
+                predictions_encoded = self.clf.predict(Xs)
+                log.info("✅ Model predictions completed")
+            except Exception as e:
+                log.error(f"❌ Model prediction failed: {e}")
+                raise
+            
+            # Step 3: Convert encoded predictions to labels
+            log.info("🏷️ Step 3: Converting predictions to labels...")
+            try:
+                predictions_labels = self.le.inverse_transform(predictions_encoded)
+                log.info("✅ Label conversion completed")
+            except Exception:
+                predictions_labels = predictions_encoded
+                log.info("✅ Using raw predictions as labels")
+            
+            # Step 4: Detect idle episodes and override predictions
+            log.info("🔍 Step 4: Detecting idle episodes...")
+            try:
+                idle_mask = detect_idle_episodes(engineered_df)
+                idle_count = idle_mask.sum()
+                total_count = len(idle_mask)
+                log.info(f"✅ Idle detection completed: {idle_count} ({idle_count/total_count*100:.1f}%)")
+            except Exception as e:
+                log.error(f"❌ Idle detection failed: {e}")
+                # Fallback: no idle detection
+                idle_mask = np.zeros(len(predictions_labels), dtype=bool)
+                log.warning("⚠️ Using fallback: no idle detection")
+            
+            # Step 5: Override predictions for idle samples
+            log.info("🔄 Step 5: Applying idle overrides...")
+            final_predictions = predictions_labels.copy()
+            final_predictions[idle_mask] = "Idle"
+            log.info("✅ Idle overrides applied")
+            
+            # Step 6: Log prediction distribution
+            log.info("📊 Step 6: Logging results...")
+            style_proportions = pd.Series(final_predictions).value_counts(normalize=True).sort_index()
+            log.info("📊 FINAL PREDICTION RESULTS:")
+            for style, prop in style_proportions.items():
+                count = (final_predictions == style).sum()
+                log.info(f"  {style:15}: {prop:.3f} ({prop*100:.1f}%) [{count} samples]")
+            
+            log.info("✅ UL prediction pipeline completed successfully")
+            return final_predictions
+            
+        except Exception as e:
+            log.error(f"❌ UL prediction pipeline failed: {e}")
+            import traceback
+            log.error(f"❌ Traceback: {traceback.format_exc()}")
+            raise
 
     def predict_csv(self, csv_path: str) -> pd.DataFrame:
         df = pd.read_csv(csv_path)

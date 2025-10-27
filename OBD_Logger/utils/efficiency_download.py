@@ -117,10 +117,12 @@ def download_efficiency_model(version: Optional[str] = None) -> bool:
                 return False
         
         logger.info(f"📥 Downloading efficiency model version: {version}")
+        logger.info(f"📁 Target directory: {EFFICIENCY_MODEL_DIR}")
         
         # Download each required file
         for filename in EFFICIENCY_FILES:
             try:
+                logger.info(f"📥 Downloading {filename}...")
                 file_path = hf_hub_download(
                     repo_id=EFFICIENCY_REPO_ID,
                     filename=f"{version}/{filename}",
@@ -128,13 +130,14 @@ def download_efficiency_model(version: Optional[str] = None) -> bool:
                     local_dir=EFFICIENCY_MODEL_DIR,
                     local_dir_use_symlinks=False
                 )
-                logger.info(f"✅ Downloaded: {filename}")
+                logger.info(f"✅ Downloaded: {filename} to {file_path}")
                 
             except Exception as e:
                 logger.error(f"❌ Failed to download {filename}: {e}")
                 return False
         
         logger.info(f"✅ Efficiency model {version} downloaded successfully")
+        logger.info(f"📂 Final directory contents: {list(EFFICIENCY_MODEL_DIR.iterdir())}")
         return True
         
     except Exception as e:
@@ -168,24 +171,39 @@ def download_latest_efficiency_models() -> bool:
 def load_efficiency_model():
     """Load the efficiency model from local storage"""
     try:
+        # Check if we have a versioned model (v1.0 subdirectory)
+        versioned_model_path = EFFICIENCY_MODEL_DIR / "v1.0" / "efficiency_model.joblib"
+        versioned_meta_path = EFFICIENCY_MODEL_DIR / "v1.0" / "efficiency_meta.json"
+        
+        # Check if we have a non-versioned model (direct in directory)
         model_path = EFFICIENCY_MODEL_DIR / "efficiency_model.joblib"
         meta_path = EFFICIENCY_MODEL_DIR / "efficiency_meta.json"
         
-        if not model_path.exists():
-            logger.error(f"❌ Efficiency model not found at {model_path}")
+        # Try versioned path first, then fallback to non-versioned
+        if versioned_model_path.exists():
+            logger.info(f"📁 Loading versioned model from: {versioned_model_path}")
+            model_artifacts = joblib.load(versioned_model_path)
+            metadata = None
+            if versioned_meta_path.exists():
+                import json
+                with open(versioned_meta_path, 'r') as f:
+                    metadata = json.load(f)
+        elif model_path.exists():
+            logger.info(f"📁 Loading non-versioned model from: {model_path}")
+            model_artifacts = joblib.load(model_path)
+            metadata = None
+            if meta_path.exists():
+                import json
+                with open(meta_path, 'r') as f:
+                    metadata = json.load(f)
+        else:
+            logger.error(f"❌ Efficiency model not found at {model_path} or {versioned_model_path}")
             return None, None
         
-        # Load model
-        model_artifacts = joblib.load(model_path)
-        
-        # Load metadata if available
-        metadata = None
-        if meta_path.exists():
-            import json
-            with open(meta_path, 'r') as f:
-                metadata = json.load(f)
-        
         logger.info("✅ Efficiency model loaded successfully")
+        if metadata:
+            logger.info(f"📊 Model kind: {metadata.get('model_kind', 'unknown')}")
+            logger.info(f"📊 Model version: {metadata.get('version', 'unknown')}")
         return model_artifacts, metadata
         
     except Exception as e:
@@ -194,8 +212,22 @@ def load_efficiency_model():
 
 def check_efficiency_model_exists() -> bool:
     """Check if efficiency model files exist locally"""
+    # Check both versioned and non-versioned paths
+    versioned_model_path = EFFICIENCY_MODEL_DIR / "v1.0" / "efficiency_model.joblib"
     model_path = EFFICIENCY_MODEL_DIR / "efficiency_model.joblib"
-    return model_path.exists()
+    
+    logger.info(f"🔍 Checking for efficiency model at: {model_path}")
+    logger.info(f"🔍 Checking for versioned efficiency model at: {versioned_model_path}")
+    logger.info(f"📁 Model directory exists: {EFFICIENCY_MODEL_DIR.exists()}")
+    
+    if EFFICIENCY_MODEL_DIR.exists():
+        logger.info(f"📂 Files in model directory: {list(EFFICIENCY_MODEL_DIR.iterdir())}")
+        if (EFFICIENCY_MODEL_DIR / "v1.0").exists():
+            logger.info(f"📂 Files in v1.0 directory: {list((EFFICIENCY_MODEL_DIR / 'v1.0').iterdir())}")
+    
+    exists = versioned_model_path.exists() or model_path.exists()
+    logger.info(f"✅ Model file exists: {exists}")
+    return exists
 
 if __name__ == "__main__":
     # Test the download functionality

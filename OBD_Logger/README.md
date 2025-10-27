@@ -165,11 +165,14 @@ The application is structured into modular components:
 ```
 
 ### Efficiency Retrieval Response (`GET /efficiency/{filename}`)
+```bash
+curl -s "https://binkhoale1812-obd-logger.hf.space/efficiency/007_2025-10-27_processed.csv"
+```
 ```json
 {
-  "filename": "001_2024-12-01_processed.csv",
-  "efficiency_score": 85.2,
-  "timestamp": "2024-12-01T14:30:22",
+  "filename": "007_2025-10-27_processed.csv",
+  "efficiency_score": 87.62542148813739,
+  "timestamp": "2025-10-27T10:34:00.046241",
   "status": "success"
 }
 ```

@@ -26,7 +26,7 @@ from data.drive_saver import DriveSaver, get_drive_service, upload_to_folder
 
 # Database
 from data.mongo_saver import MongoSaver, save_csv_to_mongo, save_dataframe_to_mongo, MONGODB_AVAILABLE
-from data.firebase_saver import FirebaseSaver, save_csv_increment, save_dataframe_increment, save_efficiency_data, get_efficiency_by_filename
+from data.firebase_saver import FirebaseSaver, save_csv_increment, save_dataframe_increment, save_efficiency_data, get_efficiency_by_filename as firebase_get_efficiency_by_filename
 
 # UL Model
 from utils.dbehavior_labeler import ULLabeler
@@ -153,7 +153,7 @@ def ingest(entry: OBDEntry, background_tasks: BackgroundTasks):
     if entry.status == "end":
         background_tasks.add_task(process_data, norm_ts)
         return {"status": "processed"}
-    # Normal row append
+    # Moderate row append
     try:
         df = pd.read_csv(RAW_CSV)
         row = {"timestamp": norm_ts, "driving_style": entry.driving_style}
@@ -216,6 +216,7 @@ def _process_and_save(df, norm_ts):
     - Backfills ALL numeric sensors with KNNImputer (+ time as a feature).
     - Keeps your plotting, Drive upload, and PIPELINE_EVENTS wiring intact.
     """
+    global DRIVE_STYLE, FUEL_EFFICIENCY
     logger.info("🔧 Cleaning started (auto-interval, KNN for all sensors)")
 
     # ----------------------- helpers (scoped locally) -----------------------
@@ -462,7 +463,6 @@ def _process_and_save(df, norm_ts):
         ul = ULLabeler.get()
         preds = ul.predict_df(df)
         # update global DRIVE_STYLE (overwrite if already exists)
-        global DRIVE_STYLE
         DRIVE_STYLE = [str(p) for p in preds]
         # write labeled CSV (driving_style column)
         df_labeled = df.copy()
@@ -474,6 +474,17 @@ def _process_and_save(df, norm_ts):
         logger.info(f"✅ UL labels generated ({len(DRIVE_STYLE)}) → {labeled_path}")
     except Exception as e:
         logger.error(f"❌ UL labeling failed: {e}")
+        import traceback
+        logger.error(f"❌ UL labeling traceback: {traceback.format_exc()}")
+        # Fallback: provide default labels
+        logger.warning("⚠️ Using fallback: default 'Moderate' labels")
+        DRIVE_STYLE = ["Moderate"] * len(df)
+        df_labeled = df.copy()
+        df_labeled["driving_style"] = DRIVE_STYLE
+        labeled_path = os.path.join(CLEANED_DIR, f"cleaned_{norm_ts}_labeled.csv")
+        df_labeled.to_csv(labeled_path, index=False)
+        df_for_persist = df_labeled
+        logger.info(f"✅ Fallback labels generated ({len(DRIVE_STYLE)}) → {labeled_path}")
     
     # 9.5) Fuel efficiency predictions
     efficiency_path = None
@@ -481,8 +492,9 @@ def _process_and_save(df, norm_ts):
         efficiency_labeler = EfficiencyLabeler.get()
         efficiency_preds = efficiency_labeler.predict_df(df)
         # update global FUEL_EFFICIENCY (overwrite if already exists)
-        global FUEL_EFFICIENCY
-        FUEL_EFFICIENCY = [float(p) for p in efficiency_preds]
+        # Efficiency is predicted per drive, so replicate the single score for all rows
+        efficiency_score = float(efficiency_preds[0]) if efficiency_preds else 0.0
+        FUEL_EFFICIENCY = [efficiency_score] * len(df_for_persist)
         # write efficiency CSV (fuel_efficiency column)
         df_efficiency = df_for_persist.copy()
         df_efficiency["fuel_efficiency"] = FUEL_EFFICIENCY
@@ -670,7 +682,7 @@ def get_efficiency_by_filename(filename: str):
         if not firebase_saver.is_available():
             raise HTTPException(status_code=503, detail="Firebase Storage not available")
         
-        efficiency_data = get_efficiency_by_filename(filename)
+        efficiency_data = firebase_get_efficiency_by_filename(filename)
         
         if efficiency_data is None:
             raise HTTPException(status_code=404, detail=f"Efficiency data not found for {filename}")
